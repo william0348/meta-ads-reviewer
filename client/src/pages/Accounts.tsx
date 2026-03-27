@@ -1,12 +1,13 @@
 /**
  * Accounts & Groups Page
- * Manage ad accounts, organize them into groups, and lookup BM IDs.
+ * Manage ad accounts, organize them into groups.
+ * BM IDs are automatically fetched when accounts are loaded.
  */
 
 import { useState, useEffect, useCallback } from "react";
 import {
   Users, Plus, Trash2, RefreshCw, Loader2,
-  Building2, Hash, Globe, FolderPlus, Palette,
+  Building2, Hash, Globe, FolderPlus,
   ChevronDown, ChevronRight, Edit2, Check, X, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,6 @@ export default function Accounts() {
   const [groups, setGroups] = useState<AccountGroup[]>([]);
   const [newAccountId, setNewAccountId] = useState("");
   const [loading, setLoading] = useState(false);
-  const [bmLoading, setBmLoading] = useState(false);
   const [bmCache, setBmCache] = useState<Record<string, { bmId: string; bmName: string }>>({});
 
   // Group creation dialog
@@ -81,6 +81,31 @@ export default function Accounts() {
     });
   };
 
+  /**
+   * Auto-fetch BM IDs for a list of account IDs.
+   * Only fetches for accounts not already in cache.
+   */
+  const autoFetchBmIds = useCallback(async (accountIds: string[]) => {
+    if (!accessToken || accountIds.length === 0) return;
+    const currentCache = getBmIdCache();
+    const uncachedIds = accountIds.filter((id) => !currentCache[id]);
+    if (uncachedIds.length === 0) return;
+
+    try {
+      const results = await fetchBmIdsForAccounts(accessToken, uncachedIds);
+      for (const [accountId, bm] of Object.entries(results)) {
+        setBmIdForAccount(accountId, bm.bmId, bm.bmName);
+      }
+      setBmCache(getBmIdCache());
+      if (Object.keys(results).length > 0) {
+        toast.success(`自動取得 ${Object.keys(results).length} 個帳號的 BM ID`);
+      }
+    } catch {
+      // Non-critical, silently fail
+      console.warn("Auto BM ID fetch failed");
+    }
+  }, [accessToken]);
+
   const fetchAutoAccounts = useCallback(async () => {
     if (!accessToken) {
       toast.error("請先設定 Access Token");
@@ -93,48 +118,29 @@ export default function Accounts() {
       setCachedAutoAccounts(accounts);
       // Update account names cache
       const names: Record<string, string> = {};
+      const accountIds: string[] = [];
       for (const acc of accounts) {
         const id = acc.account_id.replace(/^act_/, '');
         if (acc.name) names[id] = acc.name;
+        accountIds.push(id);
       }
       if (Object.keys(names).length > 0) {
         setAccountNames(names);
         setAccountNamesState(getAccountNamesCache());
       }
       toast.success(`成功取得 ${accounts.length} 個廣告帳號`);
+
+      // Auto-fetch BM IDs for all accounts (including manual + group accounts)
+      const manualIds = getManualAccounts();
+      const groupIds = getAccountGroups().flatMap((g) => g.accountIds);
+      const allIds = Array.from(new Set([...accountIds, ...manualIds, ...groupIds]));
+      autoFetchBmIds(allIds);
     } catch (err) {
       toast.error("無法取得帳號：" + (err instanceof Error ? err.message : "未知錯誤"));
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
-
-  const handleFetchBmIds = useCallback(async () => {
-    if (!accessToken) return;
-    const allIds = [
-      ...manualAccounts,
-      ...groups.flatMap((g) => g.accountIds),
-      ...autoAccounts.map((a) => a.account_id),
-    ];
-    const uniqueIds = Array.from(new Set(allIds)).filter((id) => !bmCache[id]);
-    if (uniqueIds.length === 0) {
-      toast.info("所有帳號的 BM ID 已快取");
-      return;
-    }
-    setBmLoading(true);
-    try {
-      const results = await fetchBmIdsForAccounts(accessToken, uniqueIds);
-      for (const [accountId, bm] of Object.entries(results)) {
-        setBmIdForAccount(accountId, bm.bmId, bm.bmName);
-      }
-      setBmCache(getBmIdCache());
-      toast.success(`成功取得 ${Object.keys(results).length} 個帳號的 BM ID`);
-    } catch {
-      toast.error("取得 BM ID 失敗");
-    } finally {
-      setBmLoading(false);
-    }
-  }, [accessToken, manualAccounts, groups, autoAccounts, bmCache]);
+  }, [accessToken, autoFetchBmIds]);
 
   const handleAddAccount = () => {
     const id = newAccountId.trim();
@@ -148,6 +154,9 @@ export default function Accounts() {
     setManualAccountsList(updated);
     setNewAccountId("");
     toast.success(`已新增帳號 ${cleaned}`);
+
+    // Auto-fetch BM ID for the newly added account
+    autoFetchBmIds([cleaned]);
   };
 
   const handleRemoveAccount = (id: string) => {
@@ -203,6 +212,9 @@ export default function Accounts() {
     setNewGroupAccounts("");
     setSelectedAccountIds(new Set());
     toast.success(`已建立群組「${newGroupName.trim()}」，包含 ${allIds.length} 個帳號`);
+
+    // Auto-fetch BM IDs for newly grouped accounts
+    autoFetchBmIds(allIds);
   };
 
   const handleDeleteGroup = (groupId: string) => {
@@ -230,6 +242,9 @@ export default function Accounts() {
     setGroups(updated);
     setAddToGroupAccountId("");
     toast.success(`已新增帳號到群組`);
+
+    // Auto-fetch BM ID for the newly added account
+    autoFetchBmIds([cleaned]);
   };
 
   const handleRemoveFromGroup = (groupId: string, accountId: string) => {
@@ -255,29 +270,17 @@ export default function Accounts() {
             帳號管理
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            管理廣告帳號、建立群組、查詢 BM ID
+            管理廣告帳號、建立群組（BM ID 自動取得）
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleFetchBmIds}
-            disabled={bmLoading || !hasToken}
-            className="gap-1.5"
-          >
-            {bmLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Building2 className="w-3.5 h-3.5" />}
-            取得 BM ID
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => setShowGroupDialog(true)}
-            className="gap-1.5"
-          >
-            <FolderPlus className="w-3.5 h-3.5" />
-            建立群組
-          </Button>
-        </div>
+        <Button
+          size="sm"
+          onClick={() => setShowGroupDialog(true)}
+          className="gap-1.5"
+        >
+          <FolderPlus className="w-3.5 h-3.5" />
+          建立群組
+        </Button>
       </div>
 
       {/* Account Groups */}
@@ -412,6 +415,8 @@ export default function Accounts() {
                                     const updated = addAccountToGroup(group.id, acc.id);
                                     setGroups(updated);
                                     toast.success(`已新增 act_${acc.id} 到群組`);
+                                    // Auto-fetch BM ID
+                                    autoFetchBmIds([acc.id]);
                                   }}
                                 >
                                   <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
@@ -464,7 +469,7 @@ export default function Accounts() {
                 自動取得的帳號
               </h2>
               <p className="text-xs text-muted-foreground">
-                透過 Access Token 自動取得所有關聯帳號
+                透過 Access Token 自動取得所有關聯帳號（含 BM ID）
               </p>
             </div>
           </div>
@@ -511,7 +516,11 @@ export default function Accounts() {
                     <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-0.5">
                       <CopyableId value={account.id} label="" className="text-[11px]" />
                       {account.currency && <span>{account.currency}</span>}
-                      {bm && <span>BM: {bm.bmName || bm.bmId}</span>}
+                      {bm && (
+                        <span className="truncate">
+                          BM: {bm.bmName || bm.bmId}
+                        </span>
+                      )}
                     </div>
                   </div>
                   {appealUrl && (

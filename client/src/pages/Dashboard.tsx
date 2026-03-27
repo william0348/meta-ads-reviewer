@@ -8,7 +8,7 @@
  * - Sort by 30-day spend
  * - Copyable IDs
  * - Properly parsed review_feedback
- * - Ad detail dialog with edit & appeal
+ * - Ad detail dialog (view-only) with appeal
  * - One-click appeal link via BM ID
  */
 
@@ -29,13 +29,14 @@ import { Link } from "wouter";
 import {
   fetchAdAccounts, fetchAllDisapprovedAds, parseReviewFeedback,
   filterAdsByDateRange, getDefaultDateRange, buildAppealUrl,
+  fetchBmIdsForAccounts,
   type DisapprovedAd, type AdAccount,
 } from "@/lib/metaApi";
 import {
   getAccessToken, getManualAccounts, getAutoFetch,
   getCachedAds, setCachedAds, clearCachedAds, getCacheAge,
   getAccountGroups, getAllAccountIds, getAccountIdsForGroup,
-  getBmIdCache, getAppealUrl, getAccountNamesCache, setAccountNames,
+  getBmIdCache, setBmIdForAccount, getAppealUrl, getAccountNamesCache, setAccountNames,
   type AccountGroup,
 } from "@/lib/store";
 import CopyableId from "@/components/CopyableId";
@@ -184,6 +185,27 @@ export default function Dashboard() {
 
       if (result.errors.length > 0) {
         toast.warning(`${result.errors.length} 個帳號發生錯誤`);
+      }
+
+      // Auto-fetch BM IDs for all account IDs
+      const currentBmCache = getBmIdCache();
+      const allAccountIdsForBm = Array.from(new Set(
+        accountIds.map(id => id.replace(/^act_/, ''))
+      ));
+      const uncachedBmIds = allAccountIdsForBm.filter(id => !currentBmCache[id]);
+      if (uncachedBmIds.length > 0 && accessToken) {
+        try {
+          const bmResults = await fetchBmIdsForAccounts(accessToken, uncachedBmIds);
+          for (const [accountId, bm] of Object.entries(bmResults)) {
+            setBmIdForAccount(accountId, bm.bmId, bm.bmName);
+          }
+          setBmCache(getBmIdCache());
+          if (Object.keys(bmResults).length > 0) {
+            toast.success(`自動取得 ${Object.keys(bmResults).length} 個帳號的 BM ID`);
+          }
+        } catch {
+          console.warn('Auto BM ID fetch failed');
+        }
       }
     } catch (err) {
       toast.error("發生錯誤：" + (err instanceof Error ? err.message : "未知錯誤"));
@@ -794,7 +816,7 @@ function AdCard({
             <div className="flex gap-2 flex-wrap">
               <Button variant="default" size="sm" className="gap-1.5 text-xs" onClick={onViewDetail}>
                 <Eye className="w-3 h-3" />
-                查看詳情 / 編輯 / 申訴
+                查看詳情
               </Button>
 
               {/* One-click appeal link */}

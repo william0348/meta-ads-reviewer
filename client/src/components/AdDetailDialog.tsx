@@ -1,6 +1,6 @@
 /**
- * AdDetailDialog — Full ad detail viewer with edit and appeal capabilities.
- * Shows ad creative preview, allows editing body/title, and requesting re-review.
+ * AdDetailDialog — View-only ad detail dialog.
+ * Shows ad creative preview, rejection reasons, and appeal actions.
  */
 
 import { useState } from "react";
@@ -11,25 +11,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   AlertTriangle,
-  Edit3,
-  Send,
   ExternalLink,
   ImageOff,
   Loader2,
-  X,
-  Save,
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import CopyableId from "./CopyableId";
 import type { DisapprovedAd } from "@/lib/metaApi";
-import { requestAdReview, updateAdCreative } from "@/lib/metaApi";
+import { requestAdReview } from "@/lib/metaApi";
 import { getAccessToken } from "@/lib/store";
 
 interface AdDetailDialogProps {
@@ -40,61 +34,11 @@ interface AdDetailDialogProps {
 }
 
 export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: AdDetailDialogProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const [editBody, setEditBody] = useState("");
-  const [editLinkUrl, setEditLinkUrl] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAppealing, setIsAppealing] = useState(false);
 
   if (!ad) return null;
 
   const feedbackItems = ad.parsed_review_feedback ?? [];
-
-  const startEditing = () => {
-    setEditTitle(ad.creative?.title || "");
-    setEditBody(ad.creative?.body || "");
-    setEditLinkUrl(ad.creative?.link_url || "");
-    setIsEditing(true);
-  };
-
-  const cancelEditing = () => {
-    setIsEditing(false);
-  };
-
-  const handleSaveCreative = async () => {
-    const token = getAccessToken();
-    if (!token) {
-      toast.error("請先設定 Access Token");
-      return;
-    }
-    if (!ad.account_id) {
-      toast.error("缺少廣告帳號 ID");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const result = await updateAdCreative(token, ad.id, ad.account_id, {
-        name: ad.creative?.name,
-        body: editBody || undefined,
-        title: editTitle || undefined,
-        link_url: editLinkUrl || undefined,
-      });
-
-      if (result.success) {
-        toast.success("廣告素材已更新，將自動重新提交審核");
-        setIsEditing(false);
-        onAdUpdated?.();
-      } else {
-        toast.error(`更新失敗: ${result.error}`);
-      }
-    } catch {
-      toast.error("更新過程發生錯誤");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const handleRequestReview = async () => {
     const token = getAccessToken();
@@ -176,19 +120,11 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
 
           <Separator />
 
-          {/* ── Creative Preview ── */}
+          {/* ── Creative Preview (View Only) ── */}
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                廣告素材
-              </h3>
-              {!isEditing && (
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7" onClick={startEditing}>
-                  <Edit3 className="w-3 h-3" />
-                  編輯素材
-                </Button>
-              )}
-            </div>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              廣告素材
+            </h3>
 
             {/* Thumbnail */}
             {ad.creative?.thumbnail_url && (
@@ -209,80 +145,35 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
               </div>
             )}
 
-            {isEditing ? (
-              <div className="space-y-3">
+            <div className="space-y-2 rounded-lg bg-muted/30 p-3">
+              {ad.creative?.title && (
                 <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">標題 (Title)</label>
-                  <Input
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    placeholder="廣告標題"
-                  />
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">標題</span>
+                  <p className="text-sm font-medium mt-0.5">{ad.creative.title}</p>
                 </div>
+              )}
+              {ad.creative?.body && (
                 <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">內文 (Body)</label>
-                  <Textarea
-                    value={editBody}
-                    onChange={(e) => setEditBody(e.target.value)}
-                    placeholder="廣告內文"
-                    rows={4}
-                  />
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">內文</span>
+                  <p className="text-sm text-foreground/80 mt-0.5 whitespace-pre-wrap">{ad.creative.body}</p>
                 </div>
+              )}
+              {ad.creative?.link_url && (
                 <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">連結 (Link URL)</label>
-                  <Input
-                    value={editLinkUrl}
-                    onChange={(e) => setEditLinkUrl(e.target.value)}
-                    placeholder="https://..."
-                  />
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">連結</span>
+                  <p className="text-sm text-primary mt-0.5 truncate">{ad.creative.link_url}</p>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={handleSaveCreative}
-                    disabled={isSubmitting}
-                    className="gap-1.5"
-                  >
-                    {isSubmitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                    儲存並重新提交
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={cancelEditing} className="gap-1.5">
-                    <X className="w-3 h-3" />
-                    取消
-                  </Button>
+              )}
+              {ad.creative?.call_to_action_type && (
+                <div>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">CTA</span>
+                  <p className="text-sm mt-0.5">{ad.creative.call_to_action_type}</p>
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-2 rounded-lg bg-muted/30 p-3">
-                {ad.creative?.title && (
-                  <div>
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">標題</span>
-                    <p className="text-sm font-medium mt-0.5">{ad.creative.title}</p>
-                  </div>
-                )}
-                {ad.creative?.body && (
-                  <div>
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">內文</span>
-                    <p className="text-sm text-foreground/80 mt-0.5 whitespace-pre-wrap">{ad.creative.body}</p>
-                  </div>
-                )}
-                {ad.creative?.link_url && (
-                  <div>
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">連結</span>
-                    <p className="text-sm text-primary mt-0.5 truncate">{ad.creative.link_url}</p>
-                  </div>
-                )}
-                {ad.creative?.call_to_action_type && (
-                  <div>
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">CTA</span>
-                    <p className="text-sm mt-0.5">{ad.creative.call_to_action_type}</p>
-                  </div>
-                )}
-                {!ad.creative?.title && !ad.creative?.body && !ad.creative?.link_url && (
-                  <p className="text-sm text-muted-foreground italic">無可用的素材資訊</p>
-                )}
-              </div>
-            )}
+              )}
+              {!ad.creative?.title && !ad.creative?.body && !ad.creative?.link_url && (
+                <p className="text-sm text-muted-foreground italic">無可用的素材資訊</p>
+              )}
+            </div>
           </div>
 
           <Separator />
