@@ -3,7 +3,7 @@
  * Persists settings, groups, accounts, and cached data in browser localStorage.
  */
 
-import type { DisapprovedAd } from './metaApi';
+import type { DisapprovedAd, AdAccount } from './metaApi';
 
 const STORAGE_KEYS = {
   ACCESS_TOKEN: 'meta_ads_reviewer_token',
@@ -15,6 +15,8 @@ const STORAGE_KEYS = {
   CACHED_ERRORS: 'meta_ads_reviewer_cached_errors',
   ACCOUNT_GROUPS: 'meta_ads_reviewer_groups',
   BM_ID_CACHE: 'meta_ads_reviewer_bm_ids',
+  ACCOUNT_NAMES: 'meta_ads_reviewer_account_names',
+  CACHED_AUTO_ACCOUNTS: 'meta_ads_reviewer_auto_accounts',
 } as const;
 
 // ── Access Token ──
@@ -226,6 +228,47 @@ export function getAllAccountIds(): string[] {
 export function getAccountIdsForGroup(groupId: string): string[] {
   const group = getAccountGroups().find((g) => g.id === groupId);
   return group ? group.accountIds : [];
+}
+
+// ── Account Names Cache ──
+export function getAccountNamesCache(): Record<string, string> {
+  const stored = localStorage.getItem(STORAGE_KEYS.ACCOUNT_NAMES);
+  if (!stored) return {};
+  try { return JSON.parse(stored); } catch { return {}; }
+}
+
+export function setAccountName(accountId: string, name: string): void {
+  const cache = getAccountNamesCache();
+  const cleaned = accountId.replace(/^act_/, '');
+  cache[cleaned] = name;
+  localStorage.setItem(STORAGE_KEYS.ACCOUNT_NAMES, JSON.stringify(cache));
+}
+
+export function setAccountNames(names: Record<string, string>): void {
+  const cache = getAccountNamesCache();
+  for (const [id, name] of Object.entries(names)) {
+    cache[id.replace(/^act_/, '')] = name;
+  }
+  localStorage.setItem(STORAGE_KEYS.ACCOUNT_NAMES, JSON.stringify(cache));
+}
+
+// ── Cached Auto Accounts ──
+
+export function getCachedAutoAccounts(): AdAccount[] {
+  const stored = localStorage.getItem(STORAGE_KEYS.CACHED_AUTO_ACCOUNTS);
+  if (!stored) return [];
+  try { return JSON.parse(stored); } catch { return []; }
+}
+
+export function setCachedAutoAccounts(accounts: AdAccount[]): void {
+  localStorage.setItem(STORAGE_KEYS.CACHED_AUTO_ACCOUNTS, JSON.stringify(accounts));
+  // Also update account names cache
+  const names: Record<string, string> = {};
+  for (const acc of accounts) {
+    const id = acc.account_id.replace(/^act_/, '');
+    if (acc.name) names[id] = acc.name;
+  }
+  if (Object.keys(names).length > 0) setAccountNames(names);
 }
 
 // ── Clear All ──

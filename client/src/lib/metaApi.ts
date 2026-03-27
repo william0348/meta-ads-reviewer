@@ -24,7 +24,10 @@ export interface ReviewFeedbackItem {
 export interface DisapprovedAd {
   id: string;
   name: string;
+  status: string;
   effective_status: string;
+  account_id?: string;
+  account_name?: string;
   ad_review_feedback?: Record<string, unknown>;
   parsed_review_feedback?: ReviewFeedbackItem[];
   created_time: string;
@@ -44,8 +47,6 @@ export interface DisapprovedAd {
     call_to_action_type?: string;
     object_story_spec?: Record<string, unknown>;
   };
-  account_id?: string;
-  account_name?: string;
   spend_30d?: number;
   impressions_30d?: number;
   clicks_30d?: number;
@@ -247,12 +248,34 @@ export async function fetchAllDisapprovedAds(
     })
   );
 
+  // Optionally resolve account names
+  let accountNameMap: Record<string, string> = {};
+  try {
+    const nameResults = await Promise.allSettled(
+      accountIds.map(async (accountId) => {
+        const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+        const resp = await fetch(`${GRAPH_API_BASE}/${formattedId}?fields=name&access_token=${accessToken}`);
+        const data = await resp.json();
+        return { accountId: accountId.replace(/^act_/, ''), name: data.name || '' };
+      })
+    );
+    for (const r of nameResults) {
+      if (r.status === 'fulfilled' && r.value.name) {
+        accountNameMap[r.value.accountId] = r.value.name;
+      }
+    }
+  } catch {
+    // Non-critical, continue without names
+  }
+
   for (const result of results) {
     if (result.status === 'fulfilled') {
       const { accountId, ads } = result.value;
+      const cleanId = accountId.replace(/^act_/, '');
       const taggedAds = ads.map((ad) => ({
         ...ad,
-        account_id: accountId.replace(/^act_/, ''),
+        account_id: cleanId,
+        account_name: accountNameMap[cleanId] || ad.account_name || '',
       }));
       allAds.push(...taggedAds);
     } else {

@@ -25,6 +25,7 @@ import {
   getAutoFetch, getAccountGroups, createAccountGroup, updateAccountGroup,
   deleteAccountGroup, addAccountToGroup, removeAccountFromGroup,
   getBmIdCache, setBmIdForAccount, getAppealUrl,
+  getAccountNamesCache, setAccountNames, getCachedAutoAccounts, setCachedAutoAccounts,
   type AccountGroup,
 } from "@/lib/store";
 import CopyableId from "@/components/CopyableId";
@@ -42,6 +43,7 @@ export default function Accounts() {
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupAccounts, setNewGroupAccounts] = useState("");
+  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
 
   // Group editing
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -58,10 +60,16 @@ export default function Accounts() {
   const hasToken = !!accessToken;
   const autoFetchEnabled = getAutoFetch();
 
+  const [accountNames, setAccountNamesState] = useState<Record<string, string>>({});
+
   useEffect(() => {
     setManualAccountsList(getManualAccounts());
     setGroups(getAccountGroups());
     setBmCache(getBmIdCache());
+    setAccountNamesState(getAccountNamesCache());
+    // Load cached auto accounts
+    const cachedAuto = getCachedAutoAccounts();
+    if (cachedAuto.length > 0) setAutoAccounts(cachedAuto);
   }, []);
 
   const toggleGroupExpand = (groupId: string) => {
@@ -82,6 +90,17 @@ export default function Accounts() {
     try {
       const accounts = await fetchAdAccounts(accessToken);
       setAutoAccounts(accounts);
+      setCachedAutoAccounts(accounts);
+      // Update account names cache
+      const names: Record<string, string> = {};
+      for (const acc of accounts) {
+        const id = acc.account_id.replace(/^act_/, '');
+        if (acc.name) names[id] = acc.name;
+      }
+      if (Object.keys(names).length > 0) {
+        setAccountNames(names);
+        setAccountNamesState(getAccountNamesCache());
+      }
       toast.success(`成功取得 ${accounts.length} 個廣告帳號`);
     } catch (err) {
       toast.error("無法取得帳號：" + (err instanceof Error ? err.message : "未知錯誤"));
@@ -137,18 +156,53 @@ export default function Accounts() {
     toast.success(`已移除帳號 ${id}`);
   };
 
+  // Collect all available accounts for selection
+  const allAvailableAccounts = (() => {
+    const map = new Map<string, { id: string; name?: string; source: string }>();
+    // Manual accounts
+    manualAccounts.forEach((id) => {
+      map.set(id, { id, name: undefined, source: '手動新增' });
+    });
+    // Auto-fetched accounts
+    autoAccounts.forEach((acc) => {
+      const numId = acc.account_id.replace(/^act_/, '');
+      map.set(numId, { id: numId, name: acc.name, source: '自動取得' });
+    });
+    return Array.from(map.values());
+  })();
+
+  const toggleAccountSelection = (accountId: string) => {
+    setSelectedAccountIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedAccountIds.size === allAvailableAccounts.length) {
+      setSelectedAccountIds(new Set());
+    } else {
+      setSelectedAccountIds(new Set(allAvailableAccounts.map((a) => a.id)));
+    }
+  };
+
   const handleCreateGroup = () => {
     if (!newGroupName.trim()) { toast.error("請輸入群組名稱"); return; }
-    const accountIds = newGroupAccounts
+    // Combine selected accounts + manually typed accounts
+    const typedIds = newGroupAccounts
       .split(/[,\n\s]+/)
       .map((s) => s.trim().replace(/^act_/, ""))
       .filter((s) => /^\d+$/.test(s));
-    const updated = createAccountGroup(newGroupName.trim(), accountIds);
+    const allIds = Array.from(new Set([...Array.from(selectedAccountIds), ...typedIds]));
+    const updated = createAccountGroup(newGroupName.trim(), allIds);
     setGroups(updated);
     setShowGroupDialog(false);
     setNewGroupName("");
     setNewGroupAccounts("");
-    toast.success(`已建立群組「${newGroupName.trim()}」`);
+    setSelectedAccountIds(new Set());
+    toast.success(`已建立群組「${newGroupName.trim()}」，包含 ${allIds.length} 個帳號`);
   };
 
   const handleDeleteGroup = (groupId: string) => {
@@ -297,11 +351,15 @@ export default function Accounts() {
                     {group.accountIds.map((accountId) => {
                       const bm = bmCache[accountId];
                       const appealUrl = getAppealUrl(accountId);
+                      const accName = accountNames[accountId];
                       return (
                         <div key={accountId} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/30">
                           <div className="flex items-center gap-3 min-w-0">
                             <Users className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                             <CopyableId value={`act_${accountId}`} label="" className="text-sm" />
+                            {accName && (
+                              <span className="text-xs font-medium truncate">{accName}</span>
+                            )}
                             {bm && (
                               <span className="text-[11px] text-muted-foreground truncate">
                                 BM: {bm.bmName || bm.bmId}
@@ -336,17 +394,45 @@ export default function Accounts() {
 
                     {/* Add account to group */}
                     {isAddingAccount ? (
-                      <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
-                        <Input
-                          placeholder="輸入帳號 ID"
-                          value={addToGroupAccountId}
-                          onChange={(e) => setAddToGroupAccountId(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && handleAddToGroup()}
-                          className="h-8 text-sm font-mono"
-                          autoFocus
-                        />
-                        <Button size="sm" className="h-8" onClick={handleAddToGroup}>新增</Button>
-                        <Button size="sm" variant="ghost" className="h-8" onClick={() => { setAddToGroupId(null); setAddToGroupAccountId(""); }}>取消</Button>
+                      <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
+                        {/* Quick-select from existing accounts not yet in this group */}
+                        {(() => {
+                          const notInGroup = allAvailableAccounts.filter(
+                            (a) => !group.accountIds.includes(a.id)
+                          );
+                          if (notInGroup.length === 0) return null;
+                          return (
+                            <div className="border border-border rounded-lg max-h-36 overflow-y-auto divide-y divide-border">
+                              {notInGroup.map((acc) => (
+                                <button
+                                  key={acc.id}
+                                  type="button"
+                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/50 transition-colors text-sm"
+                                  onClick={() => {
+                                    const updated = addAccountToGroup(group.id, acc.id);
+                                    setGroups(updated);
+                                    toast.success(`已新增 act_${acc.id} 到群組`);
+                                  }}
+                                >
+                                  <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+                                  <span className="font-mono text-xs">act_{acc.id}</span>
+                                  {acc.name && <span className="text-xs text-muted-foreground truncate">({acc.name})</span>}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="或手動輸入帳號 ID"
+                            value={addToGroupAccountId}
+                            onChange={(e) => setAddToGroupAccountId(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleAddToGroup()}
+                            className="h-8 text-sm font-mono"
+                          />
+                          <Button size="sm" className="h-8" onClick={handleAddToGroup}>新增</Button>
+                          <Button size="sm" variant="ghost" className="h-8" onClick={() => { setAddToGroupId(null); setAddToGroupAccountId(""); }}>取消</Button>
+                        </div>
                       </div>
                     ) : (
                       <Button
@@ -536,12 +622,15 @@ export default function Accounts() {
       </div>
 
       {/* Create Group Dialog */}
-      <Dialog open={showGroupDialog} onOpenChange={setShowGroupDialog}>
-        <DialogContent>
+      <Dialog open={showGroupDialog} onOpenChange={(open) => {
+        setShowGroupDialog(open);
+        if (!open) { setSelectedAccountIds(new Set()); setNewGroupAccounts(""); setNewGroupName(""); }
+      }}>
+        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>建立帳號群組</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 overflow-y-auto flex-1">
             <div>
               <label className="text-sm font-medium mb-1.5 block">群組名稱</label>
               <Input
@@ -550,22 +639,87 @@ export default function Accounts() {
                 onChange={(e) => setNewGroupName(e.target.value)}
               />
             </div>
+
+            {/* Select from existing accounts */}
+            {allAvailableAccounts.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium">從已有帳號中選取</label>
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline"
+                    onClick={toggleSelectAll}
+                  >
+                    {selectedAccountIds.size === allAvailableAccounts.length ? '取消全選' : '全選'}
+                  </button>
+                </div>
+                <div className="border border-border rounded-lg max-h-52 overflow-y-auto divide-y divide-border">
+                  {allAvailableAccounts.map((acc) => {
+                    const isChecked = selectedAccountIds.has(acc.id);
+                    const bm = bmCache[acc.id];
+                    return (
+                      <label
+                        key={acc.id}
+                        className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors hover:bg-muted/50 ${
+                          isChecked ? 'bg-primary/5' : ''
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleAccountSelection(acc.id)}
+                          className="w-4 h-4 rounded border-border text-primary focus:ring-primary accent-primary"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-mono">act_{acc.id}</span>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                              {acc.source}
+                            </Badge>
+                          </div>
+                          {(acc.name || bm) && (
+                            <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                              {acc.name && <span>{acc.name}</span>}
+                              {acc.name && bm && <span> · </span>}
+                              {bm && <span>BM: {bm.bmName || bm.bmId}</span>}
+                            </p>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  已選取 {selectedAccountIds.size} / {allAvailableAccounts.length} 個帳號
+                </p>
+              </div>
+            )}
+
+            {allAvailableAccounts.length === 0 && (
+              <div className="text-center py-4 border border-dashed border-border rounded-lg">
+                <p className="text-sm text-muted-foreground">尚未設定任何帳號</p>
+                <p className="text-xs text-muted-foreground mt-1">請先在上方手動新增或自動取得帳號</p>
+              </div>
+            )}
+
+            {/* Additional manual input */}
             <div>
-              <label className="text-sm font-medium mb-1.5 block">廣告帳號 ID（選填）</label>
+              <label className="text-sm font-medium mb-1.5 block">額外輸入帳號 ID（選填）</label>
               <textarea
-                className="w-full h-24 rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                placeholder={"每行一個帳號 ID，或用逗號分隔\n例如：\n123456789\n987654321"}
+                className="w-full h-20 rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder={"輸入不在上方列表中的帳號 ID\n每行一個或用逗號分隔"}
                 value={newGroupAccounts}
                 onChange={(e) => setNewGroupAccounts(e.target.value)}
               />
-              <p className="text-[10px] text-muted-foreground mt-1">
-                可以之後再新增帳號到群組中
-              </p>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowGroupDialog(false)}>取消</Button>
-            <Button onClick={handleCreateGroup} disabled={!newGroupName.trim()}>建立群組</Button>
+            <Button onClick={handleCreateGroup} disabled={!newGroupName.trim()}>
+              建立群組{(selectedAccountIds.size > 0 || newGroupAccounts.trim()) && (
+                <span className="ml-1">({selectedAccountIds.size + (newGroupAccounts.trim() ? newGroupAccounts.split(/[,\n\s]+/).filter((s) => /^\d+$/.test(s.trim().replace(/^act_/, ''))).length : 0)} 個帳號)</span>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

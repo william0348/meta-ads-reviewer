@@ -35,13 +35,13 @@ import {
   getAccessToken, getManualAccounts, getAutoFetch,
   getCachedAds, setCachedAds, clearCachedAds, getCacheAge,
   getAccountGroups, getAllAccountIds, getAccountIdsForGroup,
-  getBmIdCache, getAppealUrl,
+  getBmIdCache, getAppealUrl, getAccountNamesCache, setAccountNames,
   type AccountGroup,
 } from "@/lib/store";
 import CopyableId from "@/components/CopyableId";
 import AdDetailDialog from "@/components/AdDetailDialog";
 
-type SortMode = "newest" | "oldest" | "spend_desc" | "spend_asc" | "name";
+type SortMode = "newest" | "oldest" | "spend_desc" | "spend_asc" | "name" | "account_name";
 type DateRange = "7d" | "14d" | "30d" | "60d" | "90d" | "all";
 
 const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
@@ -79,6 +79,7 @@ export default function Dashboard() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [groups, setGroups] = useState<AccountGroup[]>([]);
   const [bmCache, setBmCache] = useState<Record<string, { bmId: string; bmName: string }>>({});
+  const [accountNames, setAccountNamesState] = useState<Record<string, string>>({});
 
   const accessToken = getAccessToken();
   const hasToken = !!accessToken;
@@ -97,6 +98,7 @@ export default function Dashboard() {
     }
     setGroups(getAccountGroups());
     setBmCache(getBmIdCache());
+    setAccountNamesState(getAccountNamesCache());
   }, []);
 
   // Refresh cache age display every minute
@@ -161,6 +163,18 @@ export default function Dashboard() {
 
       setCachedAds(result.ads, result.errors);
       setCacheAgeStr("剛剛");
+
+      // Update account names from ads
+      const names: Record<string, string> = {};
+      for (const ad of result.ads) {
+        if (ad.account_name && ad.account_id) {
+          names[ad.account_id.replace(/^act_/, '')] = ad.account_name;
+        }
+      }
+      if (Object.keys(names).length > 0) {
+        setAccountNames(names);
+        setAccountNamesState(getAccountNamesCache());
+      }
 
       if (result.ads.length > 0) {
         toast.success(`找到 ${result.ads.length} 個被拒登廣告`);
@@ -253,10 +267,17 @@ export default function Dashboard() {
       case "name":
         result.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         break;
+      case "account_name":
+        result.sort((a, b) => {
+          const nameA = accountNames[a.account_id?.replace(/^act_/, '') || ''] || '';
+          const nameB = accountNames[b.account_id?.replace(/^act_/, '') || ''] || '';
+          return nameA.localeCompare(nameB);
+        });
+        break;
     }
 
     return result;
-  }, [ads, searchQuery, groupFilterAccountIds, accountFilter, sortMode, dateRange]);
+  }, [ads, searchQuery, groupFilterAccountIds, accountFilter, sortMode, dateRange, accountNames]);
 
   // Export to CSV
   const exportCSV = () => {
@@ -441,11 +462,17 @@ export default function Dashboard() {
                       if (!groupFilterAccountIds) return true;
                       return groupFilterAccountIds.includes(id!);
                     })
+                    .sort((a, b) => {
+                      const nameA = accountNames[a || ''] || `act_${a}`;
+                      const nameB = accountNames[b || ''] || `act_${b}`;
+                      return nameA.localeCompare(nameB);
+                    })
                     .map((id) => {
                       const count = ads.filter((a) => a.account_id === id).length;
+                      const accName = accountNames[id || ''];
                       return (
                         <SelectItem key={id} value={id!}>
-                          act_{id} ({count})
+                          {accName ? `${accName} (${count})` : `act_${id} (${count})`}
                         </SelectItem>
                       );
                     })}
@@ -463,7 +490,8 @@ export default function Dashboard() {
                 <SelectItem value="spend_asc">花費低→高</SelectItem>
                 <SelectItem value="newest">最新建立</SelectItem>
                 <SelectItem value="oldest">最早建立</SelectItem>
-                <SelectItem value="name">名稱 A-Z</SelectItem>
+                <SelectItem value="name">廣告名稱 A-Z</SelectItem>
+                <SelectItem value="account_name">帳號名稱 A-Z</SelectItem>
               </SelectContent>
             </Select>
           </div>
