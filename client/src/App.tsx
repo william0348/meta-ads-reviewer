@@ -26,18 +26,9 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="dark">
+      <ThemeProvider defaultTheme="light" switchable>
         <TooltipProvider>
-          <Toaster
-            theme="dark"
-            toastOptions={{
-              style: {
-                background: 'oklch(0.18 0.005 286)',
-                border: '1px solid oklch(1 0 0 / 8%)',
-                color: 'oklch(0.93 0.005 286)',
-              },
-            }}
-          />
+          <Toaster />
           <Router />
         </TooltipProvider>
       </ThemeProvider>

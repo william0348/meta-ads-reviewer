@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+
 import {
   Users,
   Plus,
@@ -123,10 +123,7 @@ export default function Accounts() {
       </div>
 
       {/* Auto-fetched accounts */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
+      <div
         className="gradient-border p-5 space-y-4"
       >
         <div className="flex items-center justify-between">
@@ -177,11 +174,8 @@ export default function Accounts() {
         {autoAccounts.length > 0 && (
           <div className="space-y-2">
             {autoAccounts.map((account, index) => (
-              <motion.div
+              <div
                 key={account.id}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.03 }}
                 className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
               >
                 <div className="w-8 h-8 rounded-md bg-sky/10 flex items-center justify-center shrink-0">
@@ -207,7 +201,7 @@ export default function Accounts() {
                     )}
                   </div>
                 </div>
-              </motion.div>
+              </div>
             ))}
           </div>
         )}
@@ -224,13 +218,10 @@ export default function Accounts() {
             </p>
           </div>
         )}
-      </motion.div>
+      </div>
 
       {/* Manual accounts */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
+      <div
         className="gradient-border p-5 space-y-4"
       >
         <div className="flex items-center gap-3">
@@ -270,15 +261,12 @@ export default function Accounts() {
         </div>
 
         {/* Manual accounts list */}
-        <AnimatePresence mode="popLayout">
+        
           {manualAccounts.length > 0 ? (
             <div className="space-y-2">
               {manualAccounts.map((id) => (
-                <motion.div
+                <div
                   key={id}
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
                   className="flex items-center justify-between p-3 rounded-lg bg-muted/30"
                 >
                   <div className="flex items-center gap-3">
@@ -295,7 +283,7 @@ export default function Accounts() {
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
-                </motion.div>
+                </div>
               ))}
             </div>
           ) : (
@@ -305,12 +293,12 @@ export default function Accounts() {
               </p>
             </div>
           )}
-        </AnimatePresence>
+        
 
         <p className="text-[10px] text-muted-foreground">
           提示：可以輸入帶有或不帶有 act_ 前綴的帳號 ID
         </p>
-      </motion.div>
+      </div>
     </div>
   );
 }

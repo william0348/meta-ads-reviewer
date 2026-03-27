@@ -1,25 +1,33 @@
 /**
  * Dashboard Page — Disapproved Ads Overview
- * 
- * Design: Tactical Dashboard — Dark Data-Driven
- * Shows summary stats, then a filterable/searchable table of all disapproved ads.
- * Uses Space Grotesk for headings, Inter for body, IBM Plex Mono for data.
+ *
+ * Features:
+ * - Cached data in localStorage (no re-fetch on reload)
+ * - Account multi-select filter
+ * - Sort by 30-day spend
+ * - Copyable IDs (Ad, Campaign, AdSet, Account)
+ * - Properly parsed review_feedback (no [object Object])
+ * - Ad detail dialog with edit & appeal
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+
 import {
   AlertTriangle,
   Search,
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
   XCircle,
   Loader2,
   ImageOff,
   Filter,
   Download,
+  ArrowUpDown,
+  Eye,
+  RotateCcw,
+  Clock,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,25 +44,62 @@ import { Link } from "wouter";
 import {
   fetchAdAccounts,
   fetchAllDisapprovedAds,
+  parseReviewFeedback,
   type DisapprovedAd,
   type AdAccount,
 } from "@/lib/metaApi";
-import { getAccessToken, getManualAccounts, getAutoFetch } from "@/lib/store";
+import {
+  getAccessToken,
+  getManualAccounts,
+  getAutoFetch,
+  getCachedAds,
+  setCachedAds,
+  clearCachedAds,
+  getCacheAge,
+} from "@/lib/store";
+import CopyableId from "@/components/CopyableId";
+import AdDetailDialog from "@/components/AdDetailDialog";
 
-const EMPTY_STATE_IMG = "https://d2xsxph8kpxj0f.cloudfront.net/310519663317876169/6LULQWiHUSoenQBHuSwVJQ/empty-state-cwf6vqJEvx5iQ35TY32i3g.webp";
+type SortMode = "newest" | "oldest" | "spend_desc" | "spend_asc" | "name";
 
 export default function Dashboard() {
   const [ads, setAds] = useState<DisapprovedAd[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [accountFilter, setAccountFilter] = useState("all");
+  const [sortMode, setSortMode] = useState<SortMode>("spend_desc");
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
   const [errors, setErrors] = useState<{ accountId: string; error: string }[]>([]);
-  const [lastFetched, setLastFetched] = useState<Date | null>(null);
+  const [cacheAge, setCacheAgeStr] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AdAccount[]>([]);
+  const [selectedAd, setSelectedAd] = useState<DisapprovedAd | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const accessToken = getAccessToken();
   const hasToken = !!accessToken;
+
+  // Load cached data on mount
+  useEffect(() => {
+    const cached = getCachedAds();
+    if (cached) {
+      // Re-parse review feedback for cached ads (in case parsing was added after caching)
+      const reparsed = cached.ads.map((ad) => ({
+        ...ad,
+        parsed_review_feedback: ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback),
+      }));
+      setAds(reparsed);
+      setErrors(cached.errors);
+      setCacheAgeStr(getCacheAge());
+    }
+  }, []);
+
+  // Refresh cache age display every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCacheAgeStr(getCacheAge());
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (!accessToken) {
@@ -70,7 +115,6 @@ export default function Dashboard() {
       const autoFetch = getAutoFetch();
       const manualAccounts = getManualAccounts();
 
-      // Auto-fetch accounts from token
       if (autoFetch) {
         try {
           const fetchedAccounts = await fetchAdAccounts(accessToken);
@@ -81,7 +125,6 @@ export default function Dashboard() {
         }
       }
 
-      // Add manual accounts
       for (const id of manualAccounts) {
         const formattedId = id.startsWith("act_") ? id : `act_${id}`;
         if (!accountIds.includes(formattedId)) {
@@ -100,7 +143,10 @@ export default function Dashboard() {
       const result = await fetchAllDisapprovedAds(accessToken, accountIds);
       setAds(result.ads);
       setErrors(result.errors);
-      setLastFetched(new Date());
+
+      // Cache the data
+      setCachedAds(result.ads, result.errors);
+      setCacheAgeStr("剛剛");
 
       if (result.ads.length > 0) {
         toast.success(`找到 ${result.ads.length} 個被拒登廣告`);
@@ -118,10 +164,24 @@ export default function Dashboard() {
     }
   }, [accessToken]);
 
-  // Filtered ads
-  const filteredAds = useMemo(() => {
-    let result = ads;
+  const handleClearCache = () => {
+    clearCachedAds();
+    setAds([]);
+    setErrors([]);
+    setCacheAgeStr(null);
+    toast.success("快取已清除");
+  };
 
+  // Unique account IDs from ads
+  const uniqueAccountIds = useMemo(() => {
+    return Array.from(new Set(ads.map((ad) => ad.account_id).filter(Boolean))) as string[];
+  }, [ads]);
+
+  // Filtered and sorted ads
+  const filteredAds = useMemo(() => {
+    let result = [...ads];
+
+    // Search filter
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -131,36 +191,60 @@ export default function Dashboard() {
           ad.campaign?.name?.toLowerCase().includes(q) ||
           ad.adset?.name?.toLowerCase().includes(q) ||
           ad.creative?.body?.toLowerCase().includes(q) ||
-          ad.creative?.title?.toLowerCase().includes(q)
+          ad.creative?.title?.toLowerCase().includes(q) ||
+          ad.account_id?.includes(q)
       );
     }
 
+    // Account filter
     if (accountFilter !== "all") {
       result = result.filter((ad) => ad.account_id === accountFilter);
     }
 
-    return result;
-  }, [ads, searchQuery, accountFilter]);
+    // Sort
+    switch (sortMode) {
+      case "spend_desc":
+        result.sort((a, b) => (b.spend_30d ?? 0) - (a.spend_30d ?? 0));
+        break;
+      case "spend_asc":
+        result.sort((a, b) => (a.spend_30d ?? 0) - (b.spend_30d ?? 0));
+        break;
+      case "newest":
+        result.sort((a, b) => new Date(b.created_time).getTime() - new Date(a.created_time).getTime());
+        break;
+      case "oldest":
+        result.sort((a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime());
+        break;
+      case "name":
+        result.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        break;
+    }
 
-  // Unique account IDs from ads
-  const uniqueAccountIds = useMemo(() => {
-    return Array.from(new Set(ads.map((ad) => ad.account_id).filter(Boolean)));
-  }, [ads]);
+    return result;
+  }, [ads, searchQuery, accountFilter, sortMode]);
 
   // Export to CSV
   const exportCSV = () => {
     if (filteredAds.length === 0) return;
-    const headers = ["Ad ID", "Ad Name", "Account ID", "Campaign", "Ad Set", "Review Feedback", "Created Time"];
+    const headers = [
+      "Ad ID", "Ad Name", "Account ID", "Campaign", "Campaign ID",
+      "Ad Set", "Ad Set ID", "30d Spend", "Review Feedback", "Created Time",
+    ];
     const rows = filteredAds.map((ad) => [
       ad.id,
       ad.name || "",
       ad.account_id || "",
       ad.campaign?.name || "",
+      ad.campaign_id || "",
       ad.adset?.name || "",
-      ad.ad_review_feedback ? Object.entries(ad.ad_review_feedback).map(([k, v]) => `${k}: ${v}`).join("; ") : "",
+      ad.adset_id || "",
+      ad.spend_30d?.toFixed(2) ?? "",
+      (ad.parsed_review_feedback ?? []).map((f) => `${f.key}: ${f.body}`).join("; "),
       ad.created_time || "",
     ]);
-    const csv = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const csv = [headers, ...rows]
+      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -169,6 +253,11 @@ export default function Dashboard() {
     a.click();
     URL.revokeObjectURL(url);
     toast.success("CSV 已匯出");
+  };
+
+  const openAdDetail = (ad: DisapprovedAd) => {
+    setSelectedAd(ad);
+    setDetailOpen(true);
   };
 
   return (
@@ -182,13 +271,30 @@ export default function Dashboard() {
           >
             被拒登廣告總覽
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {lastFetched
-              ? `最後更新：${lastFetched.toLocaleString("zh-TW")}`
-              : "尚未載入資料"}
-          </p>
+          <div className="flex items-center gap-3 mt-1">
+            {cacheAge && (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <Database className="w-3 h-3" />
+                快取資料：{cacheAge}
+              </span>
+            )}
+            {!cacheAge && (
+              <span className="text-xs text-muted-foreground">尚未載入資料</span>
+            )}
+          </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {cacheAge && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleClearCache}
+              className="gap-1.5 text-xs text-muted-foreground"
+            >
+              <XCircle className="w-3 h-3" />
+              清除快取
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -203,7 +309,7 @@ export default function Dashboard() {
             size="sm"
             onClick={fetchData}
             disabled={loading || !hasToken}
-            className="gap-1.5 bg-sky text-white hover:bg-sky/90"
+            className="gap-1.5"
           >
             {loading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -216,7 +322,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatsCard
           label="被拒登廣告"
           value={ads.length}
@@ -249,16 +355,10 @@ export default function Dashboard() {
 
       {/* No token warning */}
       {!hasToken && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="gradient-border p-6 text-center"
+        <div
+          className="gradient-border p-8 text-center"
         >
-          <img
-            src="https://d2xsxph8kpxj0f.cloudfront.net/310519663317876169/6LULQWiHUSoenQBHuSwVJQ/settings-illustration-CMdVMxcTNvsNX9nia42yh2.webp"
-            alt="Settings"
-            className="w-24 h-24 mx-auto mb-4 opacity-60"
-          />
+          <AlertTriangle className="w-12 h-12 mx-auto mb-4 text-amber" />
           <h3 className="text-lg font-semibold mb-2" style={{ fontFamily: "var(--font-display)" }}>
             尚未設定 Access Token
           </h3>
@@ -266,17 +366,12 @@ export default function Dashboard() {
             請前往設定頁面配置你的 Meta Marketing API Access Token
           </p>
           <Link href="/settings">
-            <Button
-              size="sm"
-              className="bg-sky text-white hover:bg-sky/90"
-            >
-              前往設定
-            </Button>
+            <Button size="sm">前往設定</Button>
           </Link>
-        </motion.div>
+        </div>
       )}
 
-      {/* Search and filter bar */}
+      {/* Search, filter, sort bar */}
       {hasToken && (
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -285,24 +380,42 @@ export default function Dashboard() {
               placeholder="搜尋廣告名稱、ID、Campaign..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-card border-border"
+              className="pl-9"
             />
           </div>
-          {uniqueAccountIds.length > 0 && (
-            <Select value={accountFilter} onValueChange={setAccountFilter}>
-              <SelectTrigger className="w-full sm:w-56 bg-card border-border">
-                <SelectValue placeholder="所有帳號" />
+          <div className="flex gap-2">
+            {uniqueAccountIds.length > 0 && (
+              <Select value={accountFilter} onValueChange={setAccountFilter}>
+                <SelectTrigger className="w-full sm:w-52">
+                  <SelectValue placeholder="所有帳號" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有帳號 ({ads.length})</SelectItem>
+                  {uniqueAccountIds.map((id) => {
+                    const count = ads.filter((a) => a.account_id === id).length;
+                    return (
+                      <SelectItem key={id} value={id!}>
+                        {id} ({count})
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            )}
+            <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+              <SelectTrigger className="w-full sm:w-44">
+                <ArrowUpDown className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">所有帳號</SelectItem>
-                {uniqueAccountIds.map((id) => (
-                  <SelectItem key={id} value={id || "unknown"}>
-                    {id}
-                  </SelectItem>
-                ))}
+                <SelectItem value="spend_desc">花費高→低</SelectItem>
+                <SelectItem value="spend_asc">花費低→高</SelectItem>
+                <SelectItem value="newest">最新建立</SelectItem>
+                <SelectItem value="oldest">最早建立</SelectItem>
+                <SelectItem value="name">名稱 A-Z</SelectItem>
               </SelectContent>
             </Select>
-          )}
+          </div>
         </div>
       )}
 
@@ -321,36 +434,44 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Ads list */}
-      {hasToken && ads.length === 0 && !loading && lastFetched && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+      {/* Empty state */}
+      {hasToken && ads.length === 0 && !loading && cacheAge === null && (
+        <div
           className="text-center py-16"
         >
-          <img
-            src={EMPTY_STATE_IMG}
-            alt="No disapproved ads"
-            className="w-32 h-32 mx-auto mb-4 opacity-50"
-          />
+          <RefreshCw className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
+          <h3 className="text-lg font-semibold mb-1" style={{ fontFamily: "var(--font-display)" }}>
+            點擊「重新載入」開始
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            載入後的資料會自動快取，下次開啟無需重新抓取
+          </p>
+        </div>
+      )}
+
+      {hasToken && ads.length === 0 && !loading && cacheAge !== null && (
+        <div
+          className="text-center py-16"
+        >
+          <XCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground/40" />
           <h3 className="text-lg font-semibold mb-1" style={{ fontFamily: "var(--font-display)" }}>
             沒有被拒登的廣告
           </h3>
           <p className="text-sm text-muted-foreground">
             所有帳號中目前沒有被拒登的廣告
           </p>
-        </motion.div>
+        </div>
       )}
 
       {/* Loading state */}
       {loading && (
         <div className="text-center py-16">
-          <Loader2 className="w-8 h-8 animate-spin text-sky mx-auto mb-4" />
+          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
           <p className="text-sm text-muted-foreground">正在從 Meta API 載入資料...</p>
         </div>
       )}
 
-      {/* Ads table */}
+      {/* Ads list */}
       {filteredAds.length > 0 && (
         <div className="space-y-3">
           {filteredAds.map((ad, index) => (
@@ -360,10 +481,21 @@ export default function Dashboard() {
               index={index}
               expanded={expandedAd === ad.id}
               onToggle={() => setExpandedAd(expandedAd === ad.id ? null : ad.id)}
+              onViewDetail={() => openAdDetail(ad)}
             />
           ))}
         </div>
       )}
+
+      {/* Ad Detail Dialog */}
+      <AdDetailDialog
+        ad={selectedAd}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        onAdUpdated={() => {
+          toast.info("資料已變更，建議重新載入以取得最新狀態");
+        }}
+      />
     </div>
   );
 }
@@ -383,17 +515,14 @@ function StatsCard({
   delay: number;
 }) {
   const colorMap = {
-    rose: "text-rose bg-rose/10 glow-red",
-    amber: "text-amber bg-amber/10 glow-amber",
-    sky: "text-sky bg-sky/10 glow-blue",
-    emerald: "text-emerald bg-emerald/10 glow-green",
+    rose: "text-rose bg-rose/10",
+    amber: "text-amber bg-amber/10",
+    sky: "text-sky bg-sky/10",
+    emerald: "text-emerald bg-emerald/10",
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.3 }}
+    <div
       className="gradient-border p-4"
     >
       <div className="flex items-center justify-between mb-3">
@@ -410,7 +539,7 @@ function StatsCard({
       >
         {value}
       </p>
-    </motion.div>
+    </div>
   );
 }
 
@@ -420,27 +549,24 @@ function AdCard({
   index,
   expanded,
   onToggle,
+  onViewDetail,
 }: {
   ad: DisapprovedAd;
   index: number;
   expanded: boolean;
   onToggle: () => void;
+  onViewDetail: () => void;
 }) {
-  const feedbackEntries = ad.ad_review_feedback
-    ? Object.entries(ad.ad_review_feedback)
-    : [];
+  const feedbackItems = ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: Math.min(index * 0.03, 0.3), duration: 0.25 }}
+    <div
       className="gradient-border overflow-hidden"
     >
       {/* Header row */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-4 p-4 text-left hover:bg-white/[0.02] transition-colors"
+        className="w-full flex items-center gap-4 p-4 text-left hover:bg-accent/50 transition-colors"
       >
         {/* Thumbnail */}
         <div className="w-12 h-12 rounded-md bg-muted flex-shrink-0 overflow-hidden">
@@ -451,7 +577,6 @@ function AdCard({
               className="w-full h-full object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = "none";
-                (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden");
               }}
             />
           ) : (
@@ -469,9 +594,12 @@ function AdCard({
               DISAPPROVED
             </Badge>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-mono">
-            <span>ID: {ad.id}</span>
-            {ad.account_id && <span>帳號: {ad.account_id}</span>}
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="font-mono">ID: {ad.id}</span>
+            {ad.account_id && <span className="font-mono">帳號: {ad.account_id.startsWith('act_') ? ad.account_id : `act_${ad.account_id}`}</span>}
+            {ad.spend_30d !== undefined && ad.spend_30d > 0 && (
+              <span className="text-amber font-medium">30d: ${ad.spend_30d.toFixed(2)}</span>
+            )}
           </div>
         </div>
 
@@ -482,29 +610,70 @@ function AdCard({
       </button>
 
       {/* Expanded details */}
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
+      {expanded && (
+          <div
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 pt-0 space-y-4 border-t border-border">
-              {/* Campaign / AdSet info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4">
-                <InfoField label="Campaign" value={ad.campaign?.name} mono={false} />
-                <InfoField label="Ad Set" value={ad.adset?.name} mono={false} />
-                <InfoField label="Campaign ID" value={ad.campaign_id} mono />
-                <InfoField label="Ad Set ID" value={ad.adset_id} mono />
-                <InfoField label="建立時間" value={ad.created_time ? new Date(ad.created_time).toLocaleString("zh-TW") : undefined} mono={false} />
-                <InfoField label="更新時間" value={ad.updated_time ? new Date(ad.updated_time).toLocaleString("zh-TW") : undefined} mono={false} />
+              {/* Copyable IDs */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-4 p-3 rounded-lg bg-muted/40">
+                <CopyableId label="Ad ID" value={ad.id} />
+                {ad.account_id && (
+                  <CopyableId label="帳號" value={ad.account_id.startsWith('act_') ? ad.account_id : `act_${ad.account_id}`} />
+                )}
+                {ad.campaign_id && <CopyableId label="Campaign ID" value={ad.campaign_id} />}
+                {ad.adset_id && <CopyableId label="Ad Set ID" value={ad.adset_id} />}
               </div>
+
+              {/* Campaign / AdSet info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {ad.campaign?.name && (
+                  <div>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Campaign</span>
+                    <p className="text-sm font-medium mt-0.5">{ad.campaign.name}</p>
+                  </div>
+                )}
+                {ad.adset?.name && (
+                  <div>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Ad Set</span>
+                    <p className="text-sm font-medium mt-0.5">{ad.adset.name}</p>
+                  </div>
+                )}
+                {ad.created_time && (
+                  <div>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">建立時間</span>
+                    <p className="text-sm mt-0.5">{new Date(ad.created_time).toLocaleString("zh-TW")}</p>
+                  </div>
+                )}
+                {ad.updated_time && (
+                  <div>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider">更新時間</span>
+                    <p className="text-sm mt-0.5">{new Date(ad.updated_time).toLocaleString("zh-TW")}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Spend info */}
+              {ad.spend_30d !== undefined && ad.spend_30d > 0 && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-2.5 rounded-lg bg-muted/40 text-center">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">30天花費</span>
+                    <p className="text-sm font-semibold mt-0.5">${ad.spend_30d.toFixed(2)}</p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-muted/40 text-center">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">曝光</span>
+                    <p className="text-sm font-semibold mt-0.5">{(ad.impressions_30d ?? 0).toLocaleString()}</p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-muted/40 text-center">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">點擊</span>
+                    <p className="text-sm font-semibold mt-0.5">{(ad.clicks_30d ?? 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              )}
 
               {/* Creative info */}
               {ad.creative && (ad.creative.title || ad.creative.body) && (
-                <div className="rounded-lg bg-muted/50 p-3 space-y-2">
+                <div className="rounded-lg bg-muted/40 p-3 space-y-2">
                   <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     廣告素材
                   </h4>
@@ -512,53 +681,57 @@ function AdCard({
                     <p className="text-sm font-medium">{ad.creative.title}</p>
                   )}
                   {ad.creative.body && (
-                    <p className="text-sm text-muted-foreground">{ad.creative.body}</p>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{ad.creative.body}</p>
                   )}
                 </div>
               )}
 
-              {/* Review feedback */}
-              {feedbackEntries.length > 0 && (
-                <div className="rounded-lg bg-rose/5 border border-rose/10 p-3 space-y-2">
-                  <h4 className="text-xs font-medium text-rose uppercase tracking-wider flex items-center gap-1.5">
+              {/* Review feedback — properly parsed */}
+              {feedbackItems.length > 0 && (
+                <div className="rounded-lg bg-destructive/5 border border-destructive/10 p-3 space-y-2">
+                  <h4 className="text-xs font-medium text-destructive uppercase tracking-wider flex items-center gap-1.5">
                     <XCircle className="w-3.5 h-3.5" />
                     拒登原因
                   </h4>
-                  {feedbackEntries.map(([key, value]) => (
-                    <div key={key} className="text-sm">
-                      <span className="text-muted-foreground font-mono text-xs">{key}:</span>
-                      <p className="text-foreground mt-0.5">{String(value)}</p>
+                  {feedbackItems.map((item, i) => (
+                    <div key={i}>
+                      <span className="text-[10px] font-mono text-destructive/70 uppercase">{item.key}</span>
+                      <p className="text-sm text-foreground mt-0.5 whitespace-pre-wrap">{item.body}</p>
                     </div>
                   ))}
                 </div>
               )}
 
               {/* Actions */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={onViewDetail}
+                >
+                  <Eye className="w-3 h-3" />
+                  查看詳情 / 編輯 / 申訴
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   className="gap-1.5 text-xs"
-                  onClick={() => window.open(`https://www.facebook.com/ads/manager/account/campaigns?act=${ad.account_id?.replace('act_', '')}&selected_ad_ids=${ad.id}`, '_blank')}
+                  onClick={() =>
+                    window.open(
+                      `https://www.facebook.com/ads/manager/account/campaigns?act=${ad.account_id?.replace("act_", "")}&selected_ad_ids=${ad.id}`,
+                      "_blank"
+                    )
+                  }
                 >
-                  <ExternalLink className="w-3 h-3" />
+                  <Eye className="w-3 h-3" />
                   在 Ads Manager 中查看
                 </Button>
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
 
-function InfoField({ label, value, mono }: { label: string; value?: string; mono: boolean }) {
-  if (!value) return null;
-  return (
-    <div>
-      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
-      <p className={`text-sm mt-0.5 ${mono ? "font-mono text-xs" : ""}`}>{value}</p>
     </div>
   );
 }

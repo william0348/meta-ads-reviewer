@@ -1,9 +1,7 @@
 /**
  * Meta Marketing API Service
  * Handles all interactions with the Meta Graph API for fetching
- * ad accounts and disapproved ads.
- * 
- * Design: Tactical Dashboard — Dark Data-Driven
+ * ad accounts, disapproved ads, insights, creative updates, and appeals.
  */
 
 const GRAPH_API_VERSION = 'v21.0';
@@ -18,15 +16,17 @@ export interface AdAccount {
   business_name?: string;
 }
 
-export interface AdReviewFeedback {
-  [key: string]: string;
+export interface ReviewFeedbackItem {
+  key: string;
+  body: string;
 }
 
 export interface DisapprovedAd {
   id: string;
   name: string;
   effective_status: string;
-  ad_review_feedback?: AdReviewFeedback;
+  ad_review_feedback?: Record<string, unknown>;
+  parsed_review_feedback?: ReviewFeedbackItem[];
   created_time: string;
   updated_time?: string;
   campaign_id?: string;
@@ -40,20 +40,20 @@ export interface DisapprovedAd {
     body?: string;
     title?: string;
     image_url?: string;
+    link_url?: string;
+    call_to_action_type?: string;
+    object_story_spec?: Record<string, unknown>;
   };
   account_id?: string;
   account_name?: string;
-}
-
-export interface PagingCursors {
-  before: string;
-  after: string;
+  spend_30d?: number;
+  impressions_30d?: number;
+  clicks_30d?: number;
 }
 
 export interface PagingInfo {
-  cursors: PagingCursors;
+  cursors: { before: string; after: string };
   next?: string;
-  previous?: string;
 }
 
 export interface ApiResponse<T> {
@@ -68,6 +68,66 @@ export interface ApiResponse<T> {
 }
 
 /**
+ * Deep-parse ad_review_feedback which can be nested objects.
+ * The API returns structures like:
+ *   { "global": { "body": "Your ad wasn't approved because..." } }
+ * or sometimes:
+ *   { "global": "Some string reason" }
+ * or even deeper nesting. We flatten everything into readable items.
+ */
+export function parseReviewFeedback(feedback: Record<string, unknown> | undefined): ReviewFeedbackItem[] {
+  if (!feedback) return [];
+  const items: ReviewFeedbackItem[] = [];
+
+  for (const [key, value] of Object.entries(feedback)) {
+    if (value === null || value === undefined) continue;
+
+    if (typeof value === 'string') {
+      items.push({ key, body: value });
+    } else if (typeof value === 'object') {
+      // Could be { body: "..." } or nested further
+      const obj = value as Record<string, unknown>;
+
+      // Check if it has a "body" field directly
+      if (typeof obj.body === 'string') {
+        items.push({ key, body: obj.body });
+      } else {
+        // Try to extract all string values from the object
+        const parts: string[] = [];
+        flattenObject(obj, parts);
+        if (parts.length > 0) {
+          items.push({ key, body: parts.join('\n') });
+        } else {
+          items.push({ key, body: JSON.stringify(value, null, 2) });
+        }
+      }
+    } else {
+      items.push({ key, body: String(value) });
+    }
+  }
+
+  return items;
+}
+
+function flattenObject(obj: Record<string, unknown>, parts: string[], prefix = ''): void {
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'string' && v.trim()) {
+      parts.push(v);
+    } else if (Array.isArray(v)) {
+      for (const item of v) {
+        if (typeof item === 'string' && item.trim()) {
+          parts.push(item);
+        } else if (typeof item === 'object' && item !== null) {
+          flattenObject(item as Record<string, unknown>, parts, `${prefix}${k}.`);
+        }
+      }
+    } else if (typeof v === 'object' && v !== null) {
+      flattenObject(v as Record<string, unknown>, parts, `${prefix}${k}.`);
+    }
+  }
+}
+
+/**
  * Fetch all ad accounts associated with the access token
  */
 export async function fetchAdAccounts(accessToken: string): Promise<AdAccount[]> {
@@ -77,11 +137,9 @@ export async function fetchAdAccounts(accessToken: string): Promise<AdAccount[]>
   while (url) {
     const response = await fetch(url);
     const data: ApiResponse<AdAccount> = await response.json();
-
     if (data.error) {
       throw new Error(`API Error: ${data.error.message} (Code: ${data.error.code})`);
     }
-
     allAccounts.push(...data.data);
     url = data.paging?.next || '';
   }
@@ -98,22 +156,31 @@ export async function fetchDisapprovedAds(
   limit: number = 100
 ): Promise<DisapprovedAd[]> {
   const allAds: DisapprovedAd[] = [];
-  const fields = 'id,name,effective_status,ad_review_feedback,created_time,updated_time,campaign_id,adset_id,campaign{id,name},adset{id,name},creative{id,name,thumbnail_url,body,title,image_url}';
-  
-  // Ensure account ID has act_ prefix
+  const fields = [
+    'id', 'name', 'effective_status', 'ad_review_feedback',
+    'created_time', 'updated_time', 'campaign_id', 'adset_id',
+    'campaign{id,name}', 'adset{id,name}',
+    'creative{id,name,thumbnail_url,body,title,image_url,link_url,call_to_action_type,object_story_spec}'
+  ].join(',');
+
   const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
-  
+
   let url = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${fields}&limit=${limit}&access_token=${accessToken}`;
 
   while (url) {
     const response = await fetch(url);
     const data: ApiResponse<DisapprovedAd> = await response.json();
-
     if (data.error) {
       throw new Error(`API Error for ${formattedId}: ${data.error.message} (Code: ${data.error.code})`);
     }
 
-    allAds.push(...data.data);
+    // Parse review feedback for each ad
+    const parsedAds = data.data.map(ad => ({
+      ...ad,
+      parsed_review_feedback: parseReviewFeedback(ad.ad_review_feedback),
+    }));
+
+    allAds.push(...parsedAds);
     url = data.paging?.next || '';
   }
 
@@ -121,7 +188,50 @@ export async function fetchDisapprovedAds(
 }
 
 /**
- * Fetch disapproved ads from multiple accounts
+ * Fetch 30-day spend insights for a batch of ad IDs
+ */
+export async function fetchAdInsights(
+  accessToken: string,
+  adIds: string[]
+): Promise<Map<string, { spend: number; impressions: number; clicks: number }>> {
+  const insightsMap = new Map<string, { spend: number; impressions: number; clicks: number }>();
+
+  // Process in batches of 50 to avoid rate limits
+  const batchSize = 50;
+  for (let i = 0; i < adIds.length; i += batchSize) {
+    const batch = adIds.slice(i, i + batchSize);
+
+    const batchResults = await Promise.allSettled(
+      batch.map(async (adId) => {
+        const url = `${GRAPH_API_BASE}/${adId}/insights?fields=spend,impressions,clicks&date_preset=last_30d&access_token=${accessToken}`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.data && data.data.length > 0) {
+          return {
+            adId,
+            spend: parseFloat(data.data[0].spend || '0'),
+            impressions: parseInt(data.data[0].impressions || '0', 10),
+            clicks: parseInt(data.data[0].clicks || '0', 10),
+          };
+        }
+        return { adId, spend: 0, impressions: 0, clicks: 0 };
+      })
+    );
+
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled') {
+        const { adId, spend, impressions, clicks } = result.value;
+        insightsMap.set(adId, { spend, impressions, clicks });
+      }
+    }
+  }
+
+  return insightsMap;
+}
+
+/**
+ * Fetch disapproved ads from multiple accounts with insights
  */
 export async function fetchAllDisapprovedAds(
   accessToken: string,
@@ -140,20 +250,37 @@ export async function fetchAllDisapprovedAds(
   for (const result of results) {
     if (result.status === 'fulfilled') {
       const { accountId, ads } = result.value;
-      // Tag each ad with its account ID
       const taggedAds = ads.map((ad) => ({
         ...ad,
-        account_id: accountId,
+        account_id: accountId.replace(/^act_/, ''),
       }));
       allAds.push(...taggedAds);
     } else {
       const errorMsg = result.reason instanceof Error ? result.reason.message : 'Unknown error';
-      // Extract account ID from error message if possible
       const match = errorMsg.match(/act_\d+/);
       errors.push({
         accountId: match ? match[0] : 'unknown',
         error: errorMsg,
       });
+    }
+  }
+
+  // Fetch insights for all ads
+  if (allAds.length > 0) {
+    try {
+      const adIds = allAds.map(ad => ad.id);
+      const insights = await fetchAdInsights(accessToken, adIds);
+      for (const ad of allAds) {
+        const insight = insights.get(ad.id);
+        if (insight) {
+          ad.spend_30d = insight.spend;
+          ad.impressions_30d = insight.impressions;
+          ad.clicks_30d = insight.clicks;
+        }
+      }
+    } catch {
+      // Insights fetch failure is non-critical
+      console.warn('Failed to fetch ad insights, continuing without spend data');
     }
   }
 
@@ -167,14 +294,112 @@ export async function validateToken(accessToken: string): Promise<{ valid: boole
   try {
     const response = await fetch(`${GRAPH_API_BASE}/me?fields=name,id&access_token=${accessToken}`);
     const data = await response.json();
-    
     if (data.error) {
       return { valid: false, error: data.error.message };
     }
-    
     return { valid: true, name: data.name };
-  } catch (err) {
+  } catch {
     return { valid: false, error: 'Network error: Unable to reach Meta API' };
+  }
+}
+
+/**
+ * Request re-review for a disapproved ad by setting status to ACTIVE
+ */
+export async function requestAdReview(
+  accessToken: string,
+  adId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${GRAPH_API_BASE}/${adId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        status: 'ACTIVE',
+        access_token: accessToken,
+      }),
+    });
+    const data = await response.json();
+    if (data.error) {
+      return { success: false, error: data.error.message };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Network error' };
+  }
+}
+
+/**
+ * Update ad creative by creating a new creative and assigning it to the ad.
+ * Note: Meta API does not allow in-place creative edits; you must create a new one.
+ */
+export async function updateAdCreative(
+  accessToken: string,
+  adId: string,
+  accountId: string,
+  creativeData: {
+    name?: string;
+    body?: string;
+    title?: string;
+    link_url?: string;
+    image_hash?: string;
+    page_id?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const formattedAccountId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+
+    // Build object_story_spec for the new creative
+    const linkData: Record<string, string> = {};
+    if (creativeData.body) linkData.message = creativeData.body;
+    if (creativeData.title) linkData.name = creativeData.title;
+    if (creativeData.link_url) linkData.link = creativeData.link_url;
+    if (creativeData.image_hash) linkData.image_hash = creativeData.image_hash;
+
+    const params = new URLSearchParams({
+      access_token: accessToken,
+    });
+
+    if (creativeData.name) params.set('name', creativeData.name);
+    if (Object.keys(linkData).length > 0 && creativeData.page_id) {
+      params.set('object_story_spec', JSON.stringify({
+        page_id: creativeData.page_id,
+        link_data: linkData,
+      }));
+    }
+
+    // Create new creative
+    const createResp = await fetch(`${GRAPH_API_BASE}/${formattedAccountId}/adcreatives`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+    const createData = await createResp.json();
+
+    if (createData.error) {
+      return { success: false, error: createData.error.message };
+    }
+
+    const newCreativeId = createData.id;
+
+    // Update the ad to use the new creative
+    const updateResp = await fetch(`${GRAPH_API_BASE}/${adId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        creative: JSON.stringify({ creative_id: newCreativeId }),
+        access_token: accessToken,
+      }),
+    });
+    const updateData = await updateResp.json();
+
+    if (updateData.error) {
+      return { success: false, error: updateData.error.message };
+    }
+
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Network error' };
   }
 }
 

@@ -1,8 +1,7 @@
 /**
- * DashboardLayout — Tactical Dashboard Sidebar Navigation
- * 
- * Design: Deep dark sidebar with gradient border accents,
- * collapsible on mobile, fixed on desktop.
+ * DashboardLayout — Sidebar Navigation with Theme Toggle
+ *
+ * Supports both light and dark modes with a toggle button.
  * Font: Space Grotesk for headings, Inter for body.
  */
 
@@ -15,10 +14,12 @@ import {
   Users,
   AlertTriangle,
   Menu,
-  X,
   Shield,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -48,9 +49,10 @@ const navItems = [
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
 
   return (
-    <div className="min-h-screen flex bg-background">
+    <div className="min-h-screen flex bg-background text-foreground">
       {/* Mobile overlay */}
       <AnimatePresence>
         {sidebarOpen && (
@@ -58,7 +60,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -77,8 +79,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Logo area */}
         <div className="p-5 border-b border-sidebar-border">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-sky to-rose flex items-center justify-center">
-              <Shield className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
+              <Shield className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
               <h1 className="text-base font-semibold text-sidebar-foreground tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
@@ -115,11 +117,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   {isActive && (
                     <motion.div
                       layoutId="activeTab"
-                      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-sky"
+                      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-primary"
                       transition={{ type: "spring", stiffness: 300, damping: 30 }}
                     />
                   )}
-                  <Icon className={`w-[18px] h-[18px] ${isActive ? 'text-sky' : ''}`} />
+                  <Icon className={`w-[18px] h-[18px] ${isActive ? 'text-primary' : ''}`} />
                   <div>
                     <span className="font-medium">{item.label}</span>
                     <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
@@ -132,9 +134,25 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        {/* Footer with theme toggle */}
+        <div className="p-4 border-t border-sidebar-border space-y-3">
+          {/* Theme toggle */}
+          {toggleTheme && (
+            <button
+              onClick={toggleTheme}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+            >
+              {theme === "dark" ? (
+                <Sun className="w-[18px] h-[18px]" />
+              ) : (
+                <Moon className="w-[18px] h-[18px]" />
+              )}
+              <span className="font-medium">
+                {theme === "dark" ? "切換淺色模式" : "切換深色模式"}
+              </span>
+            </button>
+          )}
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-1">
             <AlertTriangle className="w-3.5 h-3.5 text-amber" />
             <span>Token 資料僅存於瀏覽器</span>
           </div>
@@ -142,35 +160,35 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       </aside>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 text-foreground">
         {/* Mobile header */}
-        <header className="lg:hidden sticky top-0 z-30 h-14 border-b border-border bg-background/80 backdrop-blur-xl flex items-center px-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSidebarOpen(true)}
-            className="mr-3"
-          >
-            <Menu className="w-5 h-5" />
-          </Button>
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-sky" />
-            <span className="font-semibold text-sm" style={{ fontFamily: 'var(--font-display)' }}>
-              Ads Reviewer
-            </span>
+        <header className="lg:hidden sticky top-0 z-30 h-14 border-b border-border bg-background/80 backdrop-blur-xl flex items-center justify-between px-4">
+          <div className="flex items-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSidebarOpen(true)}
+              className="mr-3"
+            >
+              <Menu className="w-5 h-5" />
+            </Button>
+            <div className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-primary" />
+              <span className="font-semibold text-sm" style={{ fontFamily: 'var(--font-display)' }}>
+                Ads Reviewer
+              </span>
+            </div>
           </div>
+          {toggleTheme && (
+            <Button variant="ghost" size="icon" onClick={toggleTheme}>
+              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
+          )}
         </header>
 
         {/* Page content */}
         <main className="flex-1 p-4 lg:p-6 overflow-auto">
-          <motion.div
-            key={location}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
-          >
-            {children}
-          </motion.div>
+          {children}
         </main>
       </div>
     </div>
