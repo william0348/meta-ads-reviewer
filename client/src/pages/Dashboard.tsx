@@ -569,6 +569,7 @@ export default function Dashboard() {
               onToggle={() => setExpandedAd(expandedAd === ad.id ? null : ad.id)}
               onViewDetail={() => openAdDetail(ad)}
               bmCache={bmCache}
+              accountNames={accountNames}
             />
           ))}
         </div>
@@ -622,7 +623,7 @@ function StatsCard({
 
 /* ─── Ad Card ─── */
 function AdCard({
-  ad, index, expanded, onToggle, onViewDetail, bmCache,
+  ad, index, expanded, onToggle, onViewDetail, bmCache, accountNames,
 }: {
   ad: DisapprovedAd;
   index: number;
@@ -630,6 +631,7 @@ function AdCard({
   onToggle: () => void;
   onViewDetail: () => void;
   bmCache: Record<string, { bmId: string; bmName: string }>;
+  accountNames: Record<string, string>;
 }) {
   const feedbackItems = ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback);
   const accountId = ad.account_id?.replace(/^act_/, "") || "";
@@ -672,6 +674,9 @@ function AdCard({
             {ad.account_id && (
               <span className="font-mono">
                 帳號: {ad.account_id.startsWith("act_") ? ad.account_id : `act_${ad.account_id}`}
+                {accountNames[accountId] && (
+                  <span className="text-foreground font-medium font-sans ml-1">({accountNames[accountId]})</span>
+                )}
               </span>
             )}
             {ad.spend_30d !== undefined && ad.spend_30d > 0 && (
@@ -700,7 +705,7 @@ function AdCard({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-4 p-3 rounded-lg bg-muted/40">
               <CopyableId label="Ad ID" value={ad.id} />
               {ad.account_id && (
-                <CopyableId label="帳號" value={ad.account_id.startsWith("act_") ? ad.account_id : `act_${ad.account_id}`} />
+                <CopyableId label={accountNames[accountId] ? `帳號 (${accountNames[accountId]})` : "帳號"} value={ad.account_id.startsWith("act_") ? ad.account_id : `act_${ad.account_id}`} />
               )}
               {ad.campaign_id && <CopyableId label="Campaign ID" value={ad.campaign_id} />}
               {ad.adset_id && <CopyableId label="Ad Set ID" value={ad.adset_id} />}
