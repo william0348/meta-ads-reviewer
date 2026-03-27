@@ -404,6 +404,88 @@ export async function updateAdCreative(
 }
 
 /**
+ * Fetch Business Manager ID for an ad account
+ */
+export async function fetchBmIdForAccount(
+  accessToken: string,
+  accountId: string
+): Promise<{ bmId: string; bmName: string } | null> {
+  try {
+    const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+    const response = await fetch(
+      `${GRAPH_API_BASE}/${formattedId}?fields=business&access_token=${accessToken}`
+    );
+    const data = await response.json();
+    if (data.error || !data.business) return null;
+    return { bmId: data.business.id, bmName: data.business.name || '' };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch BM IDs for multiple accounts in parallel
+ */
+export async function fetchBmIdsForAccounts(
+  accessToken: string,
+  accountIds: string[]
+): Promise<Record<string, { bmId: string; bmName: string }>> {
+  const result: Record<string, { bmId: string; bmName: string }> = {};
+  const batchSize = 10;
+
+  for (let i = 0; i < accountIds.length; i += batchSize) {
+    const batch = accountIds.slice(i, i + batchSize);
+    const results = await Promise.allSettled(
+      batch.map(async (id) => {
+        const bm = await fetchBmIdForAccount(accessToken, id);
+        return { id: id.replace(/^act_/, ''), bm };
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.bm) {
+        result[r.value.id] = r.value.bm;
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Build the appeal URL for an ad account
+ */
+export function buildAppealUrl(bmId: string, accountId: string): string {
+  const numericId = accountId.replace(/^act_/, '');
+  return `https://www.facebook.com/business-support-home/${bmId}/${numericId}/`;
+}
+
+/**
+ * Filter ads by date range (based on updated_time or created_time)
+ */
+export function filterAdsByDateRange(
+  ads: DisapprovedAd[],
+  startDate: Date,
+  endDate: Date
+): DisapprovedAd[] {
+  return ads.filter((ad) => {
+    const adDate = new Date(ad.updated_time || ad.created_time);
+    return adDate >= startDate && adDate <= endDate;
+  });
+}
+
+/**
+ * Get default date range (last 30 days)
+ */
+export function getDefaultDateRange(): { start: Date; end: Date } {
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  const start = new Date();
+  start.setDate(start.getDate() - 30);
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+}
+
+/**
  * Get account status label
  */
 export function getAccountStatusLabel(status: number): string {

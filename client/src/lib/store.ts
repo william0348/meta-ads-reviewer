@@ -1,6 +1,6 @@
 /**
  * Local Storage Store
- * Persists settings and cached data in browser localStorage.
+ * Persists settings, groups, accounts, and cached data in browser localStorage.
  */
 
 import type { DisapprovedAd } from './metaApi';
@@ -13,6 +13,8 @@ const STORAGE_KEYS = {
   CACHED_ADS: 'meta_ads_reviewer_cached_ads',
   CACHED_ADS_TIMESTAMP: 'meta_ads_reviewer_cached_ads_ts',
   CACHED_ERRORS: 'meta_ads_reviewer_cached_errors',
+  ACCOUNT_GROUPS: 'meta_ads_reviewer_groups',
+  BM_ID_CACHE: 'meta_ads_reviewer_bm_ids',
 } as const;
 
 // ── Access Token ──
@@ -56,6 +58,107 @@ export function setAutoFetch(enabled: boolean): void {
   localStorage.setItem(STORAGE_KEYS.AUTO_FETCH, String(enabled));
 }
 
+// ── Account Groups ──
+export interface AccountGroup {
+  id: string;
+  name: string;
+  accountIds: string[]; // numeric ad account IDs (no act_ prefix)
+  color: string; // hex color for visual identification
+}
+
+const GROUP_COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+];
+
+export function getAccountGroups(): AccountGroup[] {
+  const stored = localStorage.getItem(STORAGE_KEYS.ACCOUNT_GROUPS);
+  if (!stored) return [];
+  try { return JSON.parse(stored); } catch { return []; }
+}
+
+export function setAccountGroups(groups: AccountGroup[]): void {
+  localStorage.setItem(STORAGE_KEYS.ACCOUNT_GROUPS, JSON.stringify(groups));
+}
+
+export function createAccountGroup(name: string, accountIds: string[]): AccountGroup[] {
+  const groups = getAccountGroups();
+  const id = `grp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const colorIndex = groups.length % GROUP_COLORS.length;
+  groups.push({
+    id,
+    name,
+    accountIds: accountIds.map((a) => a.replace(/^act_/, '')),
+    color: GROUP_COLORS[colorIndex],
+  });
+  setAccountGroups(groups);
+  return groups;
+}
+
+export function updateAccountGroup(groupId: string, updates: Partial<Omit<AccountGroup, 'id'>>): AccountGroup[] {
+  const groups = getAccountGroups().map((g) =>
+    g.id === groupId ? { ...g, ...updates } : g
+  );
+  setAccountGroups(groups);
+  return groups;
+}
+
+export function deleteAccountGroup(groupId: string): AccountGroup[] {
+  const groups = getAccountGroups().filter((g) => g.id !== groupId);
+  setAccountGroups(groups);
+  return groups;
+}
+
+export function addAccountToGroup(groupId: string, accountId: string): AccountGroup[] {
+  const cleaned = accountId.replace(/^act_/, '');
+  const groups = getAccountGroups().map((g) => {
+    if (g.id === groupId && !g.accountIds.includes(cleaned)) {
+      return { ...g, accountIds: [...g.accountIds, cleaned] };
+    }
+    return g;
+  });
+  setAccountGroups(groups);
+  return groups;
+}
+
+export function removeAccountFromGroup(groupId: string, accountId: string): AccountGroup[] {
+  const groups = getAccountGroups().map((g) => {
+    if (g.id === groupId) {
+      return { ...g, accountIds: g.accountIds.filter((id) => id !== accountId) };
+    }
+    return g;
+  });
+  setAccountGroups(groups);
+  return groups;
+}
+
+// ── BM ID Cache ──
+export interface BmIdEntry {
+  accountId: string;
+  bmId: string;
+  bmName: string;
+}
+
+export function getBmIdCache(): Record<string, BmIdEntry> {
+  const stored = localStorage.getItem(STORAGE_KEYS.BM_ID_CACHE);
+  if (!stored) return {};
+  try { return JSON.parse(stored); } catch { return {}; }
+}
+
+export function setBmIdForAccount(accountId: string, bmId: string, bmName: string): void {
+  const cache = getBmIdCache();
+  cache[accountId] = { accountId, bmId, bmName };
+  localStorage.setItem(STORAGE_KEYS.BM_ID_CACHE, JSON.stringify(cache));
+}
+
+export function getAppealUrl(accountId: string): string | null {
+  const cache = getBmIdCache();
+  const entry = cache[accountId];
+  if (!entry?.bmId) return null;
+  const numericAccountId = accountId.replace(/^act_/, '');
+  return `https://www.facebook.com/business-support-home/${entry.bmId}/${numericAccountId}/`;
+}
+
 // ── Cached Ads Data ──
 export interface CachedAdsData {
   ads: DisapprovedAd[];
@@ -86,7 +189,6 @@ export function setCachedAds(ads: DisapprovedAd[], errors: { accountId: string; 
     localStorage.setItem(STORAGE_KEYS.CACHED_ERRORS, JSON.stringify(errors));
     localStorage.setItem(STORAGE_KEYS.CACHED_ADS_TIMESTAMP, String(Date.now()));
   } catch (e) {
-    // localStorage might be full; silently fail
     console.warn('Failed to cache ads data:', e);
   }
 }
@@ -110,6 +212,20 @@ export function getCacheAge(): string | null {
   if (diffHr < 24) return `${diffHr} 小時前`;
   const diffDay = Math.floor(diffHr / 24);
   return `${diffDay} 天前`;
+}
+
+// Helper: get all unique account IDs (manual + from groups)
+export function getAllAccountIds(): string[] {
+  const manual = getManualAccounts();
+  const groups = getAccountGroups();
+  const fromGroups = groups.flatMap((g) => g.accountIds);
+  return Array.from(new Set([...manual, ...fromGroups]));
+}
+
+// Helper: get account IDs for a specific group
+export function getAccountIdsForGroup(groupId: string): string[] {
+  const group = getAccountGroups().find((g) => g.id === groupId);
+  return group ? group.accountIds : [];
 }
 
 // ── Clear All ──
