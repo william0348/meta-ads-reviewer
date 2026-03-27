@@ -509,6 +509,87 @@ export function getDefaultDateRange(): { start: Date; end: Date } {
 }
 
 /**
+ * Batch request re-review for multiple ads using Graph API batch endpoint.
+ * Sends up to 50 requests per batch. Returns per-ad success/failure results.
+ */
+export interface BatchAppealResult {
+  adId: string;
+  success: boolean;
+  error?: string;
+}
+
+export async function batchRequestAdReview(
+  accessToken: string,
+  adIds: string[],
+  onProgress?: (completed: number, total: number) => void
+): Promise<BatchAppealResult[]> {
+  const results: BatchAppealResult[] = [];
+  const BATCH_SIZE = 50;
+
+  for (let i = 0; i < adIds.length; i += BATCH_SIZE) {
+    const batch = adIds.slice(i, i + BATCH_SIZE);
+
+    const batchPayload = batch.map((adId) => ({
+      method: 'POST',
+      relative_url: `${GRAPH_API_VERSION}/${adId}`,
+      body: 'status=ACTIVE',
+    }));
+
+    try {
+      const response = await fetch(`https://graph.facebook.com/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          access_token: accessToken,
+          batch: JSON.stringify(batchPayload),
+          include_headers: 'false',
+        }),
+      });
+
+      const batchResponse = await response.json();
+
+      if (Array.isArray(batchResponse)) {
+        for (let j = 0; j < batchResponse.length; j++) {
+          const item = batchResponse[j];
+          const adId = batch[j];
+          if (item && item.code === 200) {
+            results.push({ adId, success: true });
+          } else {
+            let errorMsg = 'Unknown error';
+            try {
+              const body = JSON.parse(item?.body || '{}');
+              errorMsg = body?.error?.message || `HTTP ${item?.code}`;
+            } catch {
+              errorMsg = `HTTP ${item?.code || 'unknown'}`;
+            }
+            results.push({ adId, success: false, error: errorMsg });
+          }
+        }
+      } else if (batchResponse.error) {
+        // Entire batch failed
+        for (const adId of batch) {
+          results.push({ adId, success: false, error: batchResponse.error.message });
+        }
+      }
+    } catch (err) {
+      // Network error for entire batch
+      for (const adId of batch) {
+        results.push({ adId, success: false, error: 'Network error' });
+      }
+    }
+
+    onProgress?.(Math.min(i + BATCH_SIZE, adIds.length), adIds.length);
+
+    // Small delay between batches to avoid rate limiting
+    if (i + BATCH_SIZE < adIds.length) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+
+  return results;
+}
+
+/**
  * Get account status label
  */
 export function getAccountStatusLabel(status: number): string {

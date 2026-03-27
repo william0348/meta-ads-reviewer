@@ -10,6 +10,7 @@
  * - Properly parsed review_feedback
  * - Ad detail dialog (view-only) with appeal
  * - One-click appeal link via BM ID
+ * - Batch select & appeal (re-review) via Graph API batch endpoint
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
@@ -17,6 +18,7 @@ import {
   AlertTriangle, Search, RefreshCw, ChevronDown, ChevronUp,
   XCircle, Loader2, ImageOff, Filter, Download, ArrowUpDown,
   Eye, Database, ExternalLink, Calendar, FolderOpen,
+  CheckSquare, Square, RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,8 +31,8 @@ import { Link } from "wouter";
 import {
   fetchAdAccounts, fetchAllDisapprovedAds, parseReviewFeedback,
   filterAdsByDateRange, getDefaultDateRange, buildAppealUrl,
-  fetchBmIdsForAccounts,
-  type DisapprovedAd, type AdAccount,
+  fetchBmIdsForAccounts, batchRequestAdReview,
+  type DisapprovedAd, type AdAccount, type BatchAppealResult,
 } from "@/lib/metaApi";
 import {
   getAccessToken, getManualAccounts, getAutoFetch,
@@ -41,6 +43,13 @@ import {
 } from "@/lib/store";
 import CopyableId from "@/components/CopyableId";
 import AdDetailDialog from "@/components/AdDetailDialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type SortMode = "newest" | "oldest" | "spend_desc" | "spend_asc" | "name" | "account_name";
 type DateRange = "7d" | "14d" | "30d" | "60d" | "90d" | "all";
@@ -81,6 +90,14 @@ export default function Dashboard() {
   const [groups, setGroups] = useState<AccountGroup[]>([]);
   const [bmCache, setBmCache] = useState<Record<string, { bmId: string; bmName: string }>>({});
   const [accountNames, setAccountNamesState] = useState<Record<string, string>>({});
+
+  // Batch selection & appeal state
+  const [selectedAdIds, setSelectedAdIds] = useState<Set<string>>(new Set());
+  const [isAppealing, setIsAppealing] = useState(false);
+  const [appealProgress, setAppealProgress] = useState(0);
+  const [appealTotal, setAppealTotal] = useState(0);
+  const [showAppealConfirm, setShowAppealConfirm] = useState(false);
+  const [appealResults, setAppealResults] = useState<BatchAppealResult[] | null>(null);
 
   const accessToken = getAccessToken();
   const hasToken = !!accessToken;
@@ -344,6 +361,60 @@ export default function Dashboard() {
     setDetailOpen(true);
   };
 
+  // ── Batch selection helpers ──
+  const toggleAdSelection = (adId: string) => {
+    setSelectedAdIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(adId)) next.delete(adId);
+      else next.add(adId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedAdIds.size === filteredAds.length) {
+      setSelectedAdIds(new Set());
+    } else {
+      setSelectedAdIds(new Set(filteredAds.map((ad) => ad.id)));
+    }
+  };
+
+  const handleBatchAppeal = async () => {
+    setShowAppealConfirm(false);
+    if (!accessToken || selectedAdIds.size === 0) return;
+
+    setIsAppealing(true);
+    setAppealProgress(0);
+    setAppealTotal(selectedAdIds.size);
+    setAppealResults(null);
+
+    try {
+      const adIds = Array.from(selectedAdIds);
+      const results = await batchRequestAdReview(accessToken, adIds, (completed, total) => {
+        setAppealProgress(completed);
+        setAppealTotal(total);
+      });
+
+      setAppealResults(results);
+      const successCount = results.filter((r) => r.success).length;
+      const failCount = results.filter((r) => !r.success).length;
+
+      if (successCount > 0 && failCount === 0) {
+        toast.success(`全部 ${successCount} 個廣告已成功提交重新審核`);
+      } else if (successCount > 0 && failCount > 0) {
+        toast.warning(`${successCount} 個成功，${failCount} 個失敗`);
+      } else {
+        toast.error(`全部 ${failCount} 個廣告提交失敗`);
+      }
+
+      setSelectedAdIds(new Set());
+    } catch {
+      toast.error("批次申訴過程發生錯誤");
+    } finally {
+      setIsAppealing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -579,6 +650,118 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Batch selection toolbar */}
+      {filteredAds.length > 0 && (
+        <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleSelectAll}
+              className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors"
+            >
+              {selectedAdIds.size === filteredAds.length && filteredAds.length > 0 ? (
+                <CheckSquare className="w-4 h-4 text-primary" />
+              ) : (
+                <Square className="w-4 h-4 text-muted-foreground" />
+              )}
+              {selectedAdIds.size === filteredAds.length && filteredAds.length > 0
+                ? "取消全選"
+                : "全選"}
+            </button>
+            {selectedAdIds.size > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                已選取 {selectedAdIds.size} / {filteredAds.length}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedAdIds.size > 0 && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-xs"
+                  onClick={() => setSelectedAdIds(new Set())}
+                >
+                  <XCircle className="w-3 h-3" />
+                  清除選取
+                </Button>
+                <Button
+                  size="sm"
+                  className="gap-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white"
+                  onClick={() => setShowAppealConfirm(true)}
+                  disabled={isAppealing}
+                >
+                  {isAppealing ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3 h-3" />
+                  )}
+                  批次申請重新審核 ({selectedAdIds.size})
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Appeal progress bar */}
+      {isAppealing && (
+        <div className="space-y-2 p-4 rounded-lg bg-muted/50 border border-border">
+          <div className="flex items-center justify-between text-sm">
+            <span className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              正在批次提交重新審核...
+            </span>
+            <span className="text-muted-foreground">
+              {appealProgress} / {appealTotal}
+            </span>
+          </div>
+          <Progress value={appealTotal > 0 ? (appealProgress / appealTotal) * 100 : 0} />
+        </div>
+      )}
+
+      {/* Appeal results summary */}
+      {appealResults && !isAppealing && (
+        <div className="rounded-lg border border-border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold flex items-center gap-2">
+              <RotateCcw className="w-4 h-4" />
+              批次申訴結果
+            </h4>
+            <Button
+              variant="ghost" size="sm" className="text-xs h-7"
+              onClick={() => setAppealResults(null)}
+            >
+              關閉
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-2.5 rounded-lg bg-emerald-500/10 text-center">
+              <span className="text-[10px] text-emerald-600 uppercase tracking-wider block">成功</span>
+              <p className="text-lg font-bold text-emerald-600">
+                {appealResults.filter((r) => r.success).length}
+              </p>
+            </div>
+            <div className="p-2.5 rounded-lg bg-rose-500/10 text-center">
+              <span className="text-[10px] text-rose-600 uppercase tracking-wider block">失敗</span>
+              <p className="text-lg font-bold text-rose-600">
+                {appealResults.filter((r) => !r.success).length}
+              </p>
+            </div>
+          </div>
+          {appealResults.filter((r) => !r.success).length > 0 && (
+            <div className="space-y-1 max-h-32 overflow-y-auto">
+              <p className="text-xs text-muted-foreground font-medium">失敗詳情：</p>
+              {appealResults.filter((r) => !r.success).map((r) => (
+                <p key={r.adId} className="text-xs text-muted-foreground font-mono">
+                  {r.adId}: {r.error}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Ads list */}
       {filteredAds.length > 0 && (
         <div className="space-y-3">
@@ -592,6 +775,8 @@ export default function Dashboard() {
               onViewDetail={() => openAdDetail(ad)}
               bmCache={bmCache}
               accountNames={accountNames}
+              selected={selectedAdIds.has(ad.id)}
+              onToggleSelect={() => toggleAdSelection(ad.id)}
             />
           ))}
         </div>
@@ -606,6 +791,31 @@ export default function Dashboard() {
           toast.info("資料已變更，建議重新載入以取得最新狀態");
         }}
       />
+
+      {/* Batch Appeal Confirmation Dialog */}
+      <AlertDialog open={showAppealConfirm} onOpenChange={setShowAppealConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>確認批次申請重新審核</AlertDialogTitle>
+            <AlertDialogDescription>
+              即將對 <strong>{selectedAdIds.size}</strong> 個被拒登廣告提交重新審核申請。
+              此操作會透過 Meta Graph API Batch 端點將每個廣告的狀態設為 ACTIVE，
+              觸發 Meta 的重新審核流程。
+              <br /><br />
+              <span className="text-amber-600">注意：每個 API 呼叫都會計入速率限制配額。</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBatchAppeal}
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              確認提交 ({selectedAdIds.size} 個廣告)
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -646,6 +856,7 @@ function StatsCard({
 /* ─── Ad Card ─── */
 function AdCard({
   ad, index, expanded, onToggle, onViewDetail, bmCache, accountNames,
+  selected, onToggleSelect,
 }: {
   ad: DisapprovedAd;
   index: number;
@@ -654,6 +865,8 @@ function AdCard({
   onViewDetail: () => void;
   bmCache: Record<string, { bmId: string; bmName: string }>;
   accountNames: Record<string, string>;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const feedbackItems = ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback);
   const accountId = ad.account_id?.replace(/^act_/, "") || "";
@@ -661,12 +874,18 @@ function AdCard({
   const appealUrl = bm ? buildAppealUrl(bm.bmId, accountId) : null;
 
   return (
-    <div className="gradient-border overflow-hidden">
+    <div className={`gradient-border overflow-hidden transition-colors ${selected ? 'ring-2 ring-primary/40' : ''}`}>
       {/* Header row */}
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-4 p-4 text-left hover:bg-accent/50 transition-colors"
-      >
+      <div className="w-full flex items-center gap-4 p-4 text-left hover:bg-accent/50 transition-colors">
+        {/* Checkbox */}
+        <div
+          className="shrink-0"
+          onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
+        >
+          <Checkbox checked={selected} className="cursor-pointer" />
+        </div>
+        {/* Clickable area for expand */}
+        <button onClick={onToggle} className="flex items-center gap-4 flex-1 min-w-0 text-left cursor-pointer">
         {/* Thumbnail */}
         <div className="w-12 h-12 rounded-md bg-muted flex-shrink-0 overflow-hidden">
           {ad.creative?.thumbnail_url ? (
@@ -684,7 +903,7 @@ function AdCard({
         </div>
 
         {/* Info */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0" style={{ minWidth: 0 }}>
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-sm font-medium truncate">{ad.name || "Unnamed Ad"}</span>
             <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
@@ -714,10 +933,11 @@ function AdCard({
         </div>
 
         {/* Expand icon */}
-        <div className="text-muted-foreground">
+        <div className="text-muted-foreground shrink-0">
           {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </div>
-      </button>
+        </button>
+      </div>
 
       {/* Expanded details */}
       {expanded && (
