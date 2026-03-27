@@ -21,6 +21,13 @@ export interface ReviewFeedbackItem {
   body: string;
 }
 
+export interface AdIssueInfo {
+  level: string;
+  error_code?: number;
+  error_summary?: string;
+  error_message?: string;
+}
+
 export interface DisapprovedAd {
   id: string;
   name: string;
@@ -30,6 +37,8 @@ export interface DisapprovedAd {
   account_name?: string;
   ad_review_feedback?: Record<string, unknown>;
   parsed_review_feedback?: ReviewFeedbackItem[];
+  policy_violations?: string[];  // extracted policy violation categories
+  issues_info?: AdIssueInfo[];
   created_time: string;
   updated_time?: string;
   campaign_id?: string;
@@ -66,6 +75,116 @@ export interface ApiResponse<T> {
     code: number;
     error_subcode?: number;
   };
+}
+
+/**
+ * Known Meta policy violation category mappings.
+ * The API returns keys like "GAMBLING_AND_GAMES" or descriptions.
+ * We map them to human-readable labels.
+ */
+const POLICY_VIOLATION_MAP: Record<string, string> = {
+  'GAMBLING_AND_GAMES': 'Online Gambling and Games',
+  'GAMBLING': 'Online Gambling and Games',
+  'ADULT_CONTENT': 'Adult Content',
+  'ALCOHOL': 'Alcohol',
+  'DATING': 'Dating',
+  'DRUGS_AND_SUPPLEMENTS': 'Drugs and Supplements',
+  'FINANCIAL_SERVICES': 'Financial Services',
+  'HEALTH_AND_WELLNESS': 'Health and Wellness',
+  'POLITICAL_ADS': 'Political Ads',
+  'TOBACCO': 'Tobacco and Related Products',
+  'WEAPONS': 'Weapons and Ammunition',
+  'MISLEADING_CLAIMS': 'Misleading Claims',
+  'PERSONAL_ATTRIBUTES': 'Personal Attributes',
+  'SENSATIONAL_CONTENT': 'Sensational Content',
+  'SURVEILLANCE_EQUIPMENT': 'Surveillance Equipment',
+  'CRYPTOCURRENCY': 'Cryptocurrency',
+  'SOCIAL_ISSUES': 'Social Issues',
+  'BODY_IMAGE': 'Body Image',
+  'DISCRIMINATORY_PRACTICES': 'Discriminatory Practices',
+  'UNSAFE_SUBSTANCES': 'Unsafe Substances',
+  'COUNTERFEIT_DOCUMENTS': 'Counterfeit Documents',
+  'LOW_QUALITY': 'Low Quality or Disruptive Content',
+  'NONEXISTENT_FUNCTIONALITY': 'Non-functional Landing Page',
+  'PERSONAL_HEALTH': 'Personal Health',
+  'PAYDAY_LOANS': 'Payday Loans',
+  'MULTI_LEVEL_MARKETING': 'Multi-level Marketing',
+  'PENNY_AUCTIONS': 'Penny Auctions',
+  'SPYWARE_MALWARE': 'Spyware or Malware',
+  'CIRCUMVENTING_SYSTEMS': 'Circumventing Systems',
+  'ILLEGAL_PRODUCTS': 'Illegal Products or Services',
+  'ANIMAL_SALE': 'Animal Sale',
+};
+
+/**
+ * Extract policy violation categories from ad_review_feedback and issues_info.
+ * Returns a list of human-readable policy violation names.
+ */
+export function extractPolicyViolations(
+  feedback: Record<string, unknown> | undefined,
+  issuesInfo: AdIssueInfo[] | undefined
+): string[] {
+  const violations: string[] = [];
+  const seen = new Set<string>();
+
+  // 1. Extract from ad_review_feedback.global keys
+  if (feedback) {
+    const global = feedback.global;
+    if (global && typeof global === 'object' && !Array.isArray(global)) {
+      for (const key of Object.keys(global as Record<string, unknown>)) {
+        const upperKey = key.toUpperCase().replace(/[\s-]+/g, '_');
+        const label = POLICY_VIOLATION_MAP[upperKey] || formatPolicyKey(key);
+        if (!seen.has(label)) {
+          seen.add(label);
+          violations.push(label);
+        }
+      }
+    } else if (typeof global === 'string' && global.trim()) {
+      // Sometimes global is a plain string
+      violations.push(global.trim());
+      seen.add(global.trim());
+    }
+
+    // Also check placement_specific for additional violations
+    const placementSpecific = feedback.placement_specific;
+    if (placementSpecific && typeof placementSpecific === 'object') {
+      for (const [, platformFeedback] of Object.entries(placementSpecific as Record<string, unknown>)) {
+        if (platformFeedback && typeof platformFeedback === 'object') {
+          for (const key of Object.keys(platformFeedback as Record<string, unknown>)) {
+            const upperKey = key.toUpperCase().replace(/[\s-]+/g, '_');
+            const label = POLICY_VIOLATION_MAP[upperKey] || formatPolicyKey(key);
+            if (!seen.has(label)) {
+              seen.add(label);
+              violations.push(label);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Extract from issues_info
+  if (issuesInfo && Array.isArray(issuesInfo)) {
+    for (const issue of issuesInfo) {
+      if (issue.error_summary && !seen.has(issue.error_summary)) {
+        seen.add(issue.error_summary);
+        violations.push(issue.error_summary);
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * Format a raw policy key into a readable label.
+ * e.g., "GAMBLING_AND_GAMES" → "Gambling And Games"
+ */
+function formatPolicyKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
 }
 
 /**
@@ -159,6 +278,7 @@ export async function fetchDisapprovedAds(
   const allAds: DisapprovedAd[] = [];
   const fields = [
     'id', 'name', 'effective_status', 'ad_review_feedback',
+    'issues_info',
     'created_time', 'updated_time', 'campaign_id', 'adset_id',
     'campaign{id,name}', 'adset{id,name}',
     'creative{id,name,thumbnail_url,body,title,image_url,link_url,call_to_action_type,object_story_spec}'
@@ -166,7 +286,7 @@ export async function fetchDisapprovedAds(
 
   const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
 
-  let url = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${fields}&limit=${limit}&access_token=${accessToken}`;
+  let url = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${fields}&review_feedback_breakdown=true&limit=${limit}&access_token=${accessToken}`;
 
   while (url) {
     const response = await fetch(url);
@@ -175,10 +295,11 @@ export async function fetchDisapprovedAds(
       throw new Error(`API Error for ${formattedId}: ${data.error.message} (Code: ${data.error.code})`);
     }
 
-    // Parse review feedback for each ad
+    // Parse review feedback and extract policy violations for each ad
     const parsedAds = data.data.map(ad => ({
       ...ad,
       parsed_review_feedback: parseReviewFeedback(ad.ad_review_feedback),
+      policy_violations: extractPolicyViolations(ad.ad_review_feedback, ad.issues_info as AdIssueInfo[] | undefined),
     }));
 
     allAds.push(...parsedAds);

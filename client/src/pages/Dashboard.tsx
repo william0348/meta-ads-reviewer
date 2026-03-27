@@ -904,11 +904,17 @@ function AdCard({
 
         {/* Info */}
         <div className="flex-1 min-w-0" style={{ minWidth: 0 }}>
-          <div className="flex items-center gap-2 mb-0.5">
+          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
             <span className="text-sm font-medium truncate">{ad.name || "Unnamed Ad"}</span>
             <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
               DISAPPROVED
             </Badge>
+            {/* Policy violation badges */}
+            {ad.policy_violations && ad.policy_violations.length > 0 && ad.policy_violations.map((v, i) => (
+              <Badge key={i} variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0 border-amber-400 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50">
+                {v}
+              </Badge>
+            ))}
           </div>
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
             <span className="font-mono">ID: {ad.id}</span>
@@ -1016,12 +1022,29 @@ function AdCard({
               </div>
             )}
 
-            {/* Review feedback — properly parsed */}
+            {/* Policy violations */}
+            {ad.policy_violations && ad.policy_violations.length > 0 && (
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 space-y-2">
+                <h4 className="text-xs font-medium text-amber-700 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Policy Violation
+                </h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {ad.policy_violations.map((v, i) => (
+                    <Badge key={i} variant="outline" className="text-xs px-2 py-0.5 border-amber-400 text-amber-700 dark:text-amber-400 bg-amber-100/50 dark:bg-amber-900/30">
+                      {v}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Review feedback — detailed reasons */}
             {feedbackItems.length > 0 && (
               <div className="rounded-lg bg-destructive/5 border border-destructive/10 p-3 space-y-2">
                 <h4 className="text-xs font-medium text-destructive uppercase tracking-wider flex items-center gap-1.5">
                   <XCircle className="w-3.5 h-3.5" />
-                  拒登原因
+                  拒登詳細原因
                 </h4>
                 {feedbackItems.map((item, i) => (
                   <div key={i}>

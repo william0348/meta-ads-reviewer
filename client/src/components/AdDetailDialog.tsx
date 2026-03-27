@@ -178,11 +178,30 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
 
           <Separator />
 
+          {/* ── Policy Violations ── */}
+          {ad.policy_violations && ad.policy_violations.length > 0 && (
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-4 space-y-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4" />
+                Policy Violation
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {ad.policy_violations.map((v, i) => (
+                  <Badge key={i} variant="outline" className="text-xs px-2.5 py-1 border-amber-400 text-amber-700 dark:text-amber-400 bg-amber-100/50 dark:bg-amber-900/30">
+                    {v}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <Separator />
+
           {/* ── Review Feedback ── */}
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-wider text-destructive flex items-center gap-1.5 mb-3">
               <AlertTriangle className="w-4 h-4" />
-              拒登原因
+              拒登詳細原因
             </h3>
             {feedbackItems.length > 0 ? (
               <div className="space-y-2">
