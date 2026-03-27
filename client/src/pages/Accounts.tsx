@@ -582,6 +582,11 @@ export default function Accounts() {
                       <Users className="w-3.5 h-3.5 text-emerald-500" />
                     </div>
                     <CopyableId value={`act_${id}`} label="" className="text-sm" />
+                    {accountNames[id] && (
+                      <span className="text-xs font-medium text-foreground truncate">
+                        {accountNames[id]}
+                      </span>
+                    )}
                     {bm && (
                       <span className="text-[11px] text-muted-foreground truncate">
                         BM: {bm.bmName || bm.bmId}
