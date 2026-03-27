@@ -16,6 +16,10 @@ import {
   Shield,
   Trash2,
   Info,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +34,200 @@ import {
   setAutoFetch,
   clearAllSettings,
 } from "@/lib/store";
+
+/* ─── Token Guide Component ─── */
+function TokenGuide() {
+  const [expandedSection, setExpandedSection] = useState<number | null>(null);
+
+  const toggleSection = (idx: number) => {
+    setExpandedSection(expandedSection === idx ? null : idx);
+  };
+
+  const sections = [
+    {
+      title: "Part 1：建立全新的 APP",
+      icon: "🔧",
+      steps: [
+        {
+          label: '前往 Meta for Developers 建立新的應用程式',
+          detail: '在「你希望應用程式執行哪些工作？」頁面中，選擇「其他」，然後點擊「繼續」。',
+          link: { url: 'https://developers.facebook.com/apps/', text: 'Meta for Developers' },
+        },
+        {
+          label: '選擇應用程式類型為「企業商家」',
+          detail: '在類型選擇頁面中，選擇「企業商家」，後面填寫 Email 即可完成建立。',
+        },
+      ],
+    },
+    {
+      title: "Part 2：指派資產與應用程式",
+      icon: "🏢",
+      steps: [
+        {
+          label: '回到企業管理平台',
+          detail: '前往企業管理平台的設定頁面。',
+          link: { url: 'https://business.facebook.com/settings/', text: '企業管理平台設定' },
+        },
+        {
+          label: '新增系統工作人員',
+          detail: '在左側選單中找到「系統工作人員」，新增一位系統工作人員。',
+        },
+        {
+          label: '指派資產給系統工作人員',
+          detail: '系統工作人員 → 指派資產 → 選擇需要測試的廣告帳號（或全選），給予完整權限。',
+        },
+        {
+          label: '指派應用程式權限',
+          detail: '給予完整權限 → 應用程式 → 選擇剛剛新增的應用程式，給予完整權限。',
+        },
+        {
+          label: '在應用程式中新增人員',
+          detail: '前往應用程式 → 選擇剛剛建立的應用程式 → 新增人員 → 給予自己完整權限。',
+        },
+      ],
+    },
+    {
+      title: "Part 3：申請 API 權限並產生 Token",
+      icon: "🔑",
+      steps: [
+        {
+          label: '前往圖形 API 測試工具',
+          detail: '在 Meta APP 下拉選單中，選擇剛剛新增的 APP（需要有管理員權限）。',
+          link: { url: 'https://developers.facebook.com/tools/explorer/', text: 'Graph API Explorer' },
+        },
+        {
+          label: '新增必要的 API 權限',
+          detail: '在最下方的「新增權限」中，展開 Events Groups Pages 區塊，勾選以下三個權限：',
+          permissions: ['ads_read', 'ads_management', 'business_management'],
+        },
+        {
+          label: '選擇「取得用戶存取權杖」',
+          detail: '點擊「取得用戶存取權杖」按鈕。',
+        },
+        {
+          label: '產生 Access Token',
+          detail: '點擊藍色的「Generate Access Token」按鈕。會跳出視窗詢問是否授權給所有的目錄及廣告帳號，請按「允許」。完成後按右邊的複製按鈕複製 Token。',
+        },
+      ],
+    },
+    {
+      title: "Part 4：延長 Token 有效期",
+      icon: "⏰",
+      important: true,
+      steps: [
+        {
+          label: '上述 Token 只會存活 1 小時，需要延長',
+          detail: '前往 Access Token Debugger 工具來延長 Token 的有效時間。',
+          link: { url: 'https://developers.facebook.com/tools/debug/accesstoken', text: 'Access Token Debugger' },
+        },
+        {
+          label: '貼上剛剛產生的 Access Token',
+          detail: '在頂部的輸入欄位中，貼上剛剛複製的 Access Token，然後點擊「Debug」按鈕。',
+        },
+        {
+          label: '點擊「Extend Access Token」',
+          detail: '頁面最下方會出現「Extend Access Token」按鈕，點擊後會產生一組新的 Long-lived Token，有效期約 3 個月。複製這組新的 Token 貼到上方欄位即可。',
+        },
+      ],
+    },
+  ];
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 p-4">
+        <h4 className="text-sm font-medium text-blue-700 dark:text-blue-300 flex items-center gap-2">
+          <Info className="w-4 h-4" />
+          Access Token 完整生成步驟
+        </h4>
+        <p className="text-xs text-muted-foreground mt-1">
+          依照以下 4 個步驟建立並延長你的 Meta Marketing API Access Token
+        </p>
+      </div>
+
+      {/* Accordion sections */}
+      {sections.map((section, idx) => (
+        <div
+          key={idx}
+          className={`rounded-lg border transition-colors ${
+            section.important
+              ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30'
+              : 'border-border bg-card'
+          }`}
+        >
+          <button
+            onClick={() => toggleSection(idx)}
+            className="w-full flex items-center justify-between p-4 text-left hover:bg-accent/30 transition-colors rounded-lg"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-lg">{section.icon}</span>
+              <div>
+                <span className="text-sm font-medium text-foreground">{section.title}</span>
+                {section.important && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-1.5 py-0.5 rounded">
+                    <Clock className="w-2.5 h-2.5" />
+                    重要
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="text-muted-foreground">
+              {expandedSection === idx ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </div>
+          </button>
+
+          {expandedSection === idx && (
+            <div className="px-4 pb-4 pt-0 space-y-3">
+              <div className="border-t border-border pt-3" />
+              {section.steps.map((step, stepIdx) => (
+                <div key={stepIdx} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">
+                      {stepIdx + 1}
+                    </div>
+                    {stepIdx < section.steps.length - 1 && (
+                      <div className="w-px flex-1 bg-border mt-1" />
+                    )}
+                  </div>
+                  <div className="pb-3 flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">{step.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{step.detail}</p>
+                    {step.link && (
+                      <a
+                        href={step.link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        {step.link.text}
+                      </a>
+                    )}
+                    {'permissions' in step && step.permissions && (
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {step.permissions.map((perm: string) => (
+                          <code key={perm} className="text-[11px] bg-muted px-1.5 py-0.5 rounded font-mono">
+                            {perm}
+                          </code>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Security note */}
+      <p className="text-[10px] text-muted-foreground flex items-center gap-1 px-1">
+        <AlertTriangle className="w-3 h-3 shrink-0" />
+        Token 僅儲存在你的瀏覽器 localStorage 中，不會傳送到任何第三方伺服器。
+      </p>
+    </div>
+  );
+}
 
 export default function Settings() {
   const [token, setToken] = useState("");
@@ -188,24 +386,8 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Info card */}
-      <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/50 p-4 space-y-3">
-        <h4 className="text-sm font-medium text-blue-700 dark:text-blue-300 flex items-center gap-2">
-          <Info className="w-4 h-4" />
-          如何取得 Access Token
-        </h4>
-        <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
-          <li>前往 <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener" className="text-blue-600 dark:text-blue-400 hover:underline">Graph API Explorer</a></li>
-          <li>選擇你的 App，或使用 Meta App</li>
-          <li>新增 <code className="text-xs bg-muted px-1 py-0.5 rounded">ads_read</code> 和 <code className="text-xs bg-muted px-1 py-0.5 rounded">ads_management</code> 權限</li>
-          <li>點擊「Generate Access Token」</li>
-          <li>複製 Token 並貼到上方欄位</li>
-        </ol>
-        <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" />
-          Token 僅儲存在你的瀏覽器 localStorage 中，不會傳送到任何第三方伺服器。
-        </p>
-      </div>
+      {/* Complete Token Guide */}
+      <TokenGuide />
 
       {/* Danger zone */}
       <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/50 p-4">
