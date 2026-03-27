@@ -286,7 +286,7 @@ export default function Accounts() {
       {/* Account Groups */}
       {groups.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          <h2 className="text-sm font-semibold text-muted-foreground tracking-wider">
             帳號群組
           </h2>
           {groups.map((group) => {

@@ -70,7 +70,7 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
           <DialogTitle className="flex items-center gap-3 text-lg">
             <span className="truncate">{ad.name || "Unnamed Ad"}</span>
             <Badge variant="destructive" className="shrink-0 text-xs">
-              DISAPPROVED
+              Disapproved
             </Badge>
           </DialogTitle>
         </DialogHeader>
@@ -88,13 +88,13 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {ad.campaign?.name && (
               <div>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Campaign</span>
+                <span className="text-[10px] text-muted-foreground tracking-wider">Campaign</span>
                 <p className="text-sm font-medium mt-0.5">{ad.campaign.name}</p>
               </div>
             )}
             {ad.adset?.name && (
               <div>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Ad Set</span>
+                <span className="text-[10px] text-muted-foreground tracking-wider">Ad Set</span>
                 <p className="text-sm font-medium mt-0.5">{ad.adset.name}</p>
               </div>
             )}
@@ -104,15 +104,15 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
           {(ad.spend_30d !== undefined && ad.spend_30d > 0) && (
             <div className="grid grid-cols-3 gap-3">
               <div className="p-2.5 rounded-lg bg-muted/50 text-center">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">30天花費</span>
+                <span className="text-[10px] text-muted-foreground tracking-wider block">30天花費</span>
                 <p className="text-sm font-semibold mt-0.5">${ad.spend_30d?.toFixed(2)}</p>
               </div>
               <div className="p-2.5 rounded-lg bg-muted/50 text-center">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">曝光</span>
+                <span className="text-[10px] text-muted-foreground tracking-wider block">曝光</span>
                 <p className="text-sm font-semibold mt-0.5">{(ad.impressions_30d ?? 0).toLocaleString()}</p>
               </div>
               <div className="p-2.5 rounded-lg bg-muted/50 text-center">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">點擊</span>
+                <span className="text-[10px] text-muted-foreground tracking-wider block">點擊</span>
                 <p className="text-sm font-semibold mt-0.5">{(ad.clicks_30d ?? 0).toLocaleString()}</p>
               </div>
             </div>
@@ -122,7 +122,7 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
 
           {/* ── Creative Preview (View Only) ── */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            <h3 className="text-sm font-semibold tracking-wider text-muted-foreground mb-3">
               廣告素材
             </h3>
 
@@ -148,25 +148,25 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
             <div className="space-y-2 rounded-lg bg-muted/30 p-3">
               {ad.creative?.title && (
                 <div>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">標題</span>
+                  <span className="text-[10px] text-muted-foreground tracking-wider">標題</span>
                   <p className="text-sm font-medium mt-0.5">{ad.creative.title}</p>
                 </div>
               )}
               {ad.creative?.body && (
                 <div>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">內文</span>
+                  <span className="text-[10px] text-muted-foreground tracking-wider">內文</span>
                   <p className="text-sm text-foreground/80 mt-0.5 whitespace-pre-wrap">{ad.creative.body}</p>
                 </div>
               )}
               {ad.creative?.link_url && (
                 <div>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">連結</span>
+                  <span className="text-[10px] text-muted-foreground tracking-wider">連結</span>
                   <p className="text-sm text-primary mt-0.5 truncate">{ad.creative.link_url}</p>
                 </div>
               )}
               {ad.creative?.call_to_action_type && (
                 <div>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider">CTA</span>
+                  <span className="text-[10px] text-muted-foreground tracking-wider">CTA</span>
                   <p className="text-sm mt-0.5">{ad.creative.call_to_action_type}</p>
                 </div>
               )}
@@ -181,7 +181,7 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
           {/* ── Policy Violations ── */}
           {ad.policy_violations && ad.policy_violations.length > 0 && (
             <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-4 space-y-2">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+              <h3 className="text-sm font-semibold tracking-wider text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4" />
                 Policy Violation
               </h3>
@@ -199,7 +199,7 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
 
           {/* ── Review Feedback ── */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-destructive flex items-center gap-1.5 mb-3">
+            <h3 className="text-sm font-semibold tracking-wider text-destructive flex items-center gap-1.5 mb-3">
               <AlertTriangle className="w-4 h-4" />
               拒登詳細原因
             </h3>
@@ -207,7 +207,7 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
               <div className="space-y-2">
                 {feedbackItems.map((item, i) => (
                   <div key={i} className="rounded-lg bg-destructive/5 border border-destructive/10 p-3">
-                    <span className="text-[10px] font-mono text-destructive/70 uppercase">{item.key}</span>
+                    <span className="text-[10px] font-mono text-destructive/70">{item.key}</span>
                     <p className="text-sm text-foreground mt-1 whitespace-pre-wrap">{item.body}</p>
                   </div>
                 ))}
@@ -223,13 +223,13 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
           <div className="grid grid-cols-2 gap-3 text-sm">
             {ad.created_time && (
               <div>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">建立時間</span>
+                <span className="text-[10px] text-muted-foreground tracking-wider">建立時間</span>
                 <p className="mt-0.5">{new Date(ad.created_time).toLocaleString("zh-TW")}</p>
               </div>
             )}
             {ad.updated_time && (
               <div>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">更新時間</span>
+                <span className="text-[10px] text-muted-foreground tracking-wider">更新時間</span>
                 <p className="mt-0.5">{new Date(ad.updated_time).toLocaleString("zh-TW")}</p>
               </div>
             )}

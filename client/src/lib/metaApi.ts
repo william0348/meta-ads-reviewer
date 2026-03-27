@@ -128,19 +128,20 @@ export function extractPolicyViolations(
   const seen = new Set<string>();
 
   // 1. Extract from ad_review_feedback.global keys
+  // The API returns human-readable keys like "Online Gambling and Games"
+  // so we use them directly without transformation
   if (feedback) {
     const global = feedback.global;
     if (global && typeof global === 'object' && !Array.isArray(global)) {
       for (const key of Object.keys(global as Record<string, unknown>)) {
-        const upperKey = key.toUpperCase().replace(/[\s-]+/g, '_');
-        const label = POLICY_VIOLATION_MAP[upperKey] || formatPolicyKey(key);
-        if (!seen.has(label)) {
+        // Use the key directly — it's already human-readable from the API
+        const label = key.trim();
+        if (label && !seen.has(label)) {
           seen.add(label);
           violations.push(label);
         }
       }
     } else if (typeof global === 'string' && global.trim()) {
-      // Sometimes global is a plain string
       violations.push(global.trim());
       seen.add(global.trim());
     }
@@ -151,9 +152,8 @@ export function extractPolicyViolations(
       for (const [, platformFeedback] of Object.entries(placementSpecific as Record<string, unknown>)) {
         if (platformFeedback && typeof platformFeedback === 'object') {
           for (const key of Object.keys(platformFeedback as Record<string, unknown>)) {
-            const upperKey = key.toUpperCase().replace(/[\s-]+/g, '_');
-            const label = POLICY_VIOLATION_MAP[upperKey] || formatPolicyKey(key);
-            if (!seen.has(label)) {
+            const label = key.trim();
+            if (label && !seen.has(label)) {
               seen.add(label);
               violations.push(label);
             }

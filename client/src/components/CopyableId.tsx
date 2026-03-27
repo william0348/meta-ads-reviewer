@@ -50,7 +50,7 @@ export default function CopyableId({ label, value, className = "", mono = true }
       title={`點擊複製: ${value}`}
     >
       {label && (
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wider shrink-0">
+        <span className="text-[10px] text-muted-foreground tracking-wider shrink-0">
           {label}:
         </span>
       )}
