@@ -701,8 +701,16 @@ function AdCard({
       {expanded && (
         <div className="overflow-hidden">
           <div className="px-4 pb-4 pt-0 space-y-4 border-t border-border">
+            {/* Ad Name */}
+            {ad.name && (
+              <div className="pt-4 px-1">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Ad Name</span>
+                <p className="text-sm font-semibold mt-0.5">{ad.name}</p>
+              </div>
+            )}
+
             {/* Copyable IDs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-4 p-3 rounded-lg bg-muted/40">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-3 p-3 rounded-lg bg-muted/40">
               <CopyableId label="Ad ID" value={ad.id} />
               {ad.account_id && (
                 <CopyableId label={accountNames[accountId] ? `帳號 (${accountNames[accountId]})` : "帳號"} value={ad.account_id.startsWith("act_") ? ad.account_id : `act_${ad.account_id}`} />
