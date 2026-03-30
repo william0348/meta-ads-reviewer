@@ -376,79 +376,118 @@ export async function fetchAdInsights(
 }
 
 /**
- * Fetch disapproved ads from multiple accounts with insights
+ * Fetch disapproved ads from multiple accounts in sequential batches.
+ * Processes ACCOUNTS_PER_BATCH accounts at a time to avoid API overload.
+ * Calls onProgress after each batch so the UI can update incrementally.
  */
+const ACCOUNTS_PER_BATCH = 20;
+
 export async function fetchAllDisapprovedAds(
   accessToken: string,
-  accountIds: string[]
+  accountIds: string[],
+  onProgress?: (update: {
+    completedAccounts: number;
+    totalAccounts: number;
+    currentBatchIndex: number;
+    totalBatches: number;
+    batchAds: DisapprovedAd[];
+    batchErrors: { accountId: string; error: string }[];
+  }) => void
 ): Promise<{ ads: DisapprovedAd[]; errors: { accountId: string; error: string }[] }> {
   const allAds: DisapprovedAd[] = [];
   const errors: { accountId: string; error: string }[] = [];
 
-  const results = await Promise.allSettled(
-    accountIds.map(async (accountId) => {
-      const ads = await fetchDisapprovedAds(accessToken, accountId);
-      return { accountId, ads };
-    })
-  );
+  // Split accounts into batches of ACCOUNTS_PER_BATCH
+  const batches: string[][] = [];
+  for (let i = 0; i < accountIds.length; i += ACCOUNTS_PER_BATCH) {
+    batches.push(accountIds.slice(i, i + ACCOUNTS_PER_BATCH));
+  }
 
-  // Optionally resolve account names
-  let accountNameMap: Record<string, string> = {};
-  try {
-    const nameResults = await Promise.allSettled(
-      accountIds.map(async (accountId) => {
-        const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
-        const resp = await fetch(`${GRAPH_API_BASE}/${formattedId}?fields=name&access_token=${accessToken}`);
-        const data = await resp.json();
-        return { accountId: accountId.replace(/^act_/, ''), name: data.name || '' };
+  // Process each batch sequentially
+  for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+    const batch = batches[batchIdx];
+    const batchAds: DisapprovedAd[] = [];
+    const batchErrors: { accountId: string; error: string }[] = [];
+
+    // Within each batch, fetch accounts in parallel (safe since batch is small)
+    const results = await Promise.allSettled(
+      batch.map(async (accountId) => {
+        const ads = await fetchDisapprovedAds(accessToken, accountId);
+        return { accountId, ads };
       })
     );
-    for (const r of nameResults) {
-      if (r.status === 'fulfilled' && r.value.name) {
-        accountNameMap[r.value.accountId] = r.value.name;
-      }
-    }
-  } catch {
-    // Non-critical, continue without names
-  }
 
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      const { accountId, ads } = result.value;
-      const cleanId = accountId.replace(/^act_/, '');
-      const taggedAds = ads.map((ad) => ({
-        ...ad,
-        account_id: cleanId,
-        account_name: accountNameMap[cleanId] || ad.account_name || '',
-      }));
-      allAds.push(...taggedAds);
-    } else {
-      const errorMsg = result.reason instanceof Error ? result.reason.message : 'Unknown error';
-      const match = errorMsg.match(/act_\d+/);
-      errors.push({
-        accountId: match ? match[0] : 'unknown',
-        error: errorMsg,
-      });
-    }
-  }
-
-  // Fetch insights for all ads
-  if (allAds.length > 0) {
+    // Resolve account names for this batch
+    let accountNameMap: Record<string, string> = {};
     try {
-      const adIds = allAds.map(ad => ad.id);
-      const insights = await fetchAdInsights(accessToken, adIds);
-      for (const ad of allAds) {
-        const insight = insights.get(ad.id);
-        if (insight) {
-          ad.spend_30d = insight.spend;
-          ad.impressions_30d = insight.impressions;
-          ad.clicks_30d = insight.clicks;
+      const nameResults = await Promise.allSettled(
+        batch.map(async (accountId) => {
+          const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+          const resp = await fetch(`${GRAPH_API_BASE}/${formattedId}?fields=name&access_token=${accessToken}`);
+          const data = await resp.json();
+          return { accountId: accountId.replace(/^act_/, ''), name: data.name || '' };
+        })
+      );
+      for (const r of nameResults) {
+        if (r.status === 'fulfilled' && r.value.name) {
+          accountNameMap[r.value.accountId] = r.value.name;
         }
       }
     } catch {
-      // Insights fetch failure is non-critical
-      console.warn('Failed to fetch ad insights, continuing without spend data');
+      // Non-critical
     }
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        const { accountId, ads } = result.value;
+        const cleanId = accountId.replace(/^act_/, '');
+        const taggedAds = ads.map((ad) => ({
+          ...ad,
+          account_id: cleanId,
+          account_name: accountNameMap[cleanId] || ad.account_name || '',
+        }));
+        batchAds.push(...taggedAds);
+      } else {
+        const errorMsg = result.reason instanceof Error ? result.reason.message : 'Unknown error';
+        const match = errorMsg.match(/act_\d+/);
+        batchErrors.push({
+          accountId: match ? match[0] : 'unknown',
+          error: errorMsg,
+        });
+      }
+    }
+
+    // Fetch insights for this batch's ads
+    if (batchAds.length > 0) {
+      try {
+        const adIds = batchAds.map(ad => ad.id);
+        const insights = await fetchAdInsights(accessToken, adIds);
+        for (const ad of batchAds) {
+          const insight = insights.get(ad.id);
+          if (insight) {
+            ad.spend_30d = insight.spend;
+            ad.impressions_30d = insight.impressions;
+            ad.clicks_30d = insight.clicks;
+          }
+        }
+      } catch {
+        console.warn(`Batch ${batchIdx + 1}: Failed to fetch insights, continuing without spend data`);
+      }
+    }
+
+    allAds.push(...batchAds);
+    errors.push(...batchErrors);
+
+    // Notify progress
+    const completedAccounts = Math.min((batchIdx + 1) * ACCOUNTS_PER_BATCH, accountIds.length);
+    onProgress?.({
+      completedAccounts,
+      totalAccounts: accountIds.length,
+      currentBatchIndex: batchIdx + 1,
+      totalBatches: batches.length,
+      batchAds,
+      batchErrors,
+    });
   }
 
   return { ads: allAds, errors };

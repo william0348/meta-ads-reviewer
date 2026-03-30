@@ -92,6 +92,9 @@ export default function Dashboard() {
   const [bmCache, setBmCache] = useState<Record<string, { bmId: string; bmName: string }>>({});
   const [accountNames, setAccountNamesState] = useState<Record<string, string>>({});
 
+  // Batch loading progress
+  const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; batch: number; totalBatches: number } | null>(null);
+
   // Batch selection & appeal state
   const [selectedAdIds, setSelectedAdIds] = useState<Set<string>>(new Set());
   const [isAppealing, setIsAppealing] = useState(false);
@@ -136,7 +139,9 @@ export default function Dashboard() {
     }
 
     setLoading(true);
+    setAds([]);
     setErrors([]);
+    setBatchProgress(null);
 
     try {
       const accountIds: string[] = [];
@@ -175,16 +180,53 @@ export default function Dashboard() {
         return;
       }
 
-      toast.info(`正在從 ${accountIds.length} 個帳號中搜尋被拒登廣告...`);
+      const totalAccounts = accountIds.length;
+      const batchSize = 20;
+      const totalBatches = Math.ceil(totalAccounts / batchSize);
+      toast.info(`正在從 ${totalAccounts} 個帳號中搜尋被拒登廣告（共 ${totalBatches} 批，每批 ${batchSize} 個帳號）...`);
 
-      const result = await fetchAllDisapprovedAds(accessToken, accountIds);
+      // Use incremental loading — update UI after each batch
+      const result = await fetchAllDisapprovedAds(accessToken, accountIds, (update) => {
+        // Update progress indicator
+        setBatchProgress({
+          completed: update.completedAccounts,
+          total: update.totalAccounts,
+          batch: update.currentBatchIndex,
+          totalBatches: update.totalBatches,
+        });
+
+        // Incrementally update displayed ads after each batch
+        setAds((prev) => {
+          const existingIds = new Set(prev.map(a => a.id));
+          const newAds = update.batchAds.filter(a => !existingIds.has(a.id));
+          return [...prev, ...newAds];
+        });
+        setErrors((prev) => [...prev, ...update.batchErrors]);
+
+        // Update account names incrementally
+        const names: Record<string, string> = {};
+        for (const ad of update.batchAds) {
+          if (ad.account_name && ad.account_id) {
+            names[ad.account_id.replace(/^act_/, '')] = ad.account_name;
+          }
+        }
+        if (Object.keys(names).length > 0) {
+          setAccountNames(names);
+          setAccountNamesState(getAccountNamesCache());
+        }
+
+        toast.info(`第 ${update.currentBatchIndex}/${update.totalBatches} 批完成，已找到 ${update.batchAds.length} 個拒登廣告`, { duration: 2000 });
+      });
+
+      // Final state — set complete results and cache
       setAds(result.ads);
       setErrors(result.errors);
+      setBatchProgress(null);
 
       setCachedAds(result.ads, result.errors);
       setCacheAgeStr("剛剛");
 
-      // Update account names from ads
+      // Update account names from all ads
       const names: Record<string, string> = {};
       for (const ad of result.ads) {
         if (ad.account_name && ad.account_id) {
@@ -197,7 +239,7 @@ export default function Dashboard() {
       }
 
       if (result.ads.length > 0) {
-        toast.success(`找到 ${result.ads.length} 個被拒登廣告`);
+        toast.success(`全部完成！共找到 ${result.ads.length} 個被拒登廣告`);
       } else {
         toast.info("沒有找到被拒登的廣告");
       }
@@ -645,11 +687,30 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Loading state */}
+      {/* Loading state with batch progress */}
       {loading && (
-        <div className="text-center py-16">
-          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-sm text-muted-foreground">正在從 Meta API 載入資料...</p>
+        <div className="space-y-4 py-8">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
+            {batchProgress ? (
+              <>
+                <p className="text-sm font-medium">
+                  正在載入第 {batchProgress.batch} / {batchProgress.totalBatches} 批帳號...
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  已處理 {batchProgress.completed} / {batchProgress.total} 個帳號
+                  {ads.length > 0 && `，已找到 ${ads.length} 個拒登廣告`}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">正在準備帳號列表...</p>
+            )}
+          </div>
+          {batchProgress && (
+            <div className="max-w-md mx-auto">
+              <Progress value={(batchProgress.completed / batchProgress.total) * 100} />
+            </div>
+          )}
         </div>
       )}
 
