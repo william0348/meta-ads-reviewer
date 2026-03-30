@@ -1,8 +1,7 @@
 /**
  * Settings Page — Access Token Configuration
  * 
- * Design: Light mode default, clean card-based layout
- * Allows users to set/update their Meta Marketing API access token.
+ * Saves token to both localStorage (for immediate use) and database (for persistence across devices).
  */
 
 import { useState, useEffect } from "react";
@@ -20,6 +19,8 @@ import {
   ChevronUp,
   ExternalLink,
   Clock,
+  Cloud,
+  CloudOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ import {
   setAutoFetch,
   clearAllSettings,
 } from "@/lib/store";
+import { useSettingsSync } from "@/hooks/useSettingsSync";
 
 /* ─── Token Guide Component ─── */
 function TokenGuide() {
@@ -219,12 +221,6 @@ function TokenGuide() {
           )}
         </div>
       ))}
-
-      {/* Security note */}
-      <p className="text-[10px] text-muted-foreground flex items-center gap-1 px-1">
-        <AlertTriangle className="w-3 h-3 shrink-0" />
-        Token 僅儲存在你的瀏覽器 localStorage 中，不會傳送到任何第三方伺服器。
-      </p>
     </div>
   );
 }
@@ -237,10 +233,22 @@ export default function Settings() {
   const [userName, setUserName] = useState<string | null>(null);
   const [autoFetchEnabled, setAutoFetchEnabled] = useState(true);
 
+  const { syncTokenToDb, syncAllToDb, isAuthenticated, dbSettings, isLoading } = useSettingsSync();
+
+  // Load token: prefer DB if authenticated, fallback to localStorage
   useEffect(() => {
-    setToken(getAccessToken());
+    if (isLoading) return;
+    
+    if (isAuthenticated && dbSettings?.accessToken) {
+      // DB has token — use it and sync to localStorage
+      setToken(dbSettings.accessToken);
+      setAccessToken(dbSettings.accessToken);
+    } else {
+      // Fallback to localStorage
+      setToken(getAccessToken());
+    }
     setAutoFetchEnabled(getAutoFetch());
-  }, []);
+  }, [isAuthenticated, dbSettings, isLoading]);
 
   const handleSaveToken = async () => {
     if (!token.trim()) {
@@ -254,10 +262,18 @@ export default function Settings() {
     const result = await validateToken(token.trim());
 
     if (result.valid) {
+      // Save to localStorage
       setAccessToken(token.trim());
       setTokenStatus("valid");
       setUserName(result.name || null);
-      toast.success(`Token 驗證成功！使用者：${result.name}`);
+
+      // Also save to database if authenticated
+      if (isAuthenticated) {
+        await syncTokenToDb(token.trim());
+        toast.success(`Token 驗證成功並已同步至雲端！使用者：${result.name}`);
+      } else {
+        toast.success(`Token 驗證成功！使用者：${result.name}`);
+      }
     } else {
       setTokenStatus("invalid");
       toast.error(`Token 驗證失敗：${result.error}`);
@@ -272,12 +288,22 @@ export default function Settings() {
     toast.success(checked ? "已啟用自動抓取帳號" : "已停用自動抓取帳號");
   };
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     if (confirm("確定要清除所有設定嗎？這將刪除 Access Token 和所有手動帳號。")) {
       clearAllSettings();
       setToken("");
       setTokenStatus("idle");
       setUserName(null);
+
+      // Also clear from DB
+      if (isAuthenticated) {
+        try {
+          await syncAllToDb();
+        } catch {
+          // ignore
+        }
+      }
+
       toast.success("所有設定已清除");
     }
   };
@@ -293,6 +319,27 @@ export default function Settings() {
           配置 Meta Marketing API 連線設定
         </p>
       </div>
+
+      {/* Cloud sync status */}
+      {isAuthenticated && (
+        <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/50 p-3 flex items-center gap-3">
+          <Cloud className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-green-700 dark:text-green-300">雲端同步已啟用</p>
+            <p className="text-xs text-muted-foreground">Token 和帳號設定會自動同步至資料庫，跨裝置可用</p>
+          </div>
+        </div>
+      )}
+
+      {!isAuthenticated && (
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 p-3 flex items-center gap-3">
+          <CloudOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-700 dark:text-amber-300">僅本地儲存</p>
+            <p className="text-xs text-muted-foreground">登入後可將 Token 同步至雲端，跨裝置使用</p>
+          </div>
+        </div>
+      )}
 
       {/* Token section */}
       <div className="gradient-border p-5 space-y-5">
@@ -336,6 +383,12 @@ export default function Settings() {
             <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm">
               <Check className="w-4 h-4" />
               <span>Token 有效 {userName && `— ${userName}`}</span>
+              {isAuthenticated && (
+                <span className="inline-flex items-center gap-1 text-[10px] bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">
+                  <Cloud className="w-2.5 h-2.5" />
+                  已同步
+                </span>
+              )}
             </div>
           )}
           {tokenStatus === "invalid" && (

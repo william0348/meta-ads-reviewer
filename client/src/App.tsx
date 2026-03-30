@@ -8,8 +8,8 @@ import DashboardLayout from "./components/DashboardLayout";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Accounts from "./pages/Accounts";
-
 function Router() {
+  // make sure to consider if you need authentication for certain routes
   return (
     <DashboardLayout>
       <Switch>

@@ -7,7 +7,7 @@ import { useLocation } from "wouter";
 export default function Home() {
   const [, setLocation] = useLocation();
   useEffect(() => {
-    setLocation("/");
+    setLocation("/dashboard");
   }, [setLocation]);
   return null;
 }

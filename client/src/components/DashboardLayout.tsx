@@ -17,7 +17,13 @@ import {
   Shield,
   Sun,
   Moon,
+  Cloud,
+  CloudOff,
+  LogIn,
+  LogOut,
 } from "lucide-react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -50,6 +56,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
+  const { isAuthenticated, user, logout } = useAuth();
 
   return (
     <div className="min-h-screen flex bg-background text-foreground">
@@ -152,10 +159,35 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               </span>
             </button>
           )}
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-1">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber" />
-            <span>Token 資料僅存於瀏覽器</span>
-          </div>
+          {isAuthenticated ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-[11px] text-green-600 dark:text-green-400 px-1">
+                <Cloud className="w-3.5 h-3.5" />
+                <span>已登入 · Token 已同步至雲端</span>
+              </div>
+              <button
+                onClick={() => logout()}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+              >
+                <LogOut className="w-[18px] h-[18px]" />
+                <span className="font-medium">登出 ({user?.name || user?.email || 'User'})</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-[11px] text-amber-600 dark:text-amber-400 px-1">
+                <CloudOff className="w-3.5 h-3.5" />
+                <span>Token 資料僅存於瀏覽器</span>
+              </div>
+              <a
+                href={getLoginUrl()}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+              >
+                <LogIn className="w-[18px] h-[18px]" />
+                <span className="font-medium">登入以同步至雲端</span>
+              </a>
+            </div>
+          )}
         </div>
       </aside>
 
