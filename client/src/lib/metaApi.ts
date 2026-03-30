@@ -296,7 +296,7 @@ export async function fetchDisapprovedAds(
       limit: 10,
       fields: [
         'id', 'name', 'effective_status', 'ad_review_feedback',
-        'created_time', 'campaign_id', 'adset_id',
+        'created_time', 'updated_time', 'campaign_id', 'adset_id',
         'campaign{id,name}', 'adset{id,name}',
         'creative{id,name,thumbnail_url,title}'
       ].join(','),
@@ -306,13 +306,13 @@ export async function fetchDisapprovedAds(
       limit: 5,
       fields: [
         'id', 'name', 'effective_status', 'ad_review_feedback',
-        'created_time', 'creative{id,thumbnail_url}'
+        'created_time', 'updated_time', 'creative{id,thumbnail_url}'
       ].join(','),
     },
     {
       label: 'bare',
       limit: 3,
-      fields: 'id,name,effective_status,ad_review_feedback,created_time',
+      fields: 'id,name,effective_status,ad_review_feedback,created_time,updated_time',
     },
   ];
 
@@ -698,7 +698,7 @@ export function buildAppealUrl(bmId: string, accountId: string): string {
 }
 
 /**
- * Filter ads by date range (based on updated_time or created_time)
+ * Filter ads by date range (based on updated_time as disapproval date proxy, fallback to created_time)
  */
 export function filterAdsByDateRange(
   ads: DisapprovedAd[],

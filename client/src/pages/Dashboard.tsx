@@ -56,11 +56,11 @@ type SortMode = "newest" | "oldest" | "spend_desc" | "spend_asc" | "name" | "acc
 type DateRange = "7d" | "14d" | "30d" | "60d" | "90d" | "all";
 
 const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
-  { value: "7d", label: "最近 7 天" },
-  { value: "14d", label: "最近 14 天" },
-  { value: "30d", label: "最近 30 天" },
-  { value: "60d", label: "最近 60 天" },
-  { value: "90d", label: "最近 90 天" },
+  { value: "7d", label: "拒登 7 天內" },
+  { value: "14d", label: "拒登 14 天內" },
+  { value: "30d", label: "拒登 30 天內" },
+  { value: "60d", label: "拒登 60 天內" },
+  { value: "90d", label: "拒登 90 天內" },
   { value: "all", label: "全部時間" },
 ];
 
@@ -342,10 +342,10 @@ export default function Dashboard() {
         result.sort((a, b) => (a.spend_30d ?? 0) - (b.spend_30d ?? 0));
         break;
       case "newest":
-        result.sort((a, b) => new Date(b.created_time).getTime() - new Date(a.created_time).getTime());
+        result.sort((a, b) => new Date(b.updated_time || b.created_time).getTime() - new Date(a.updated_time || a.created_time).getTime());
         break;
       case "oldest":
-        result.sort((a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime());
+        result.sort((a, b) => new Date(a.updated_time || a.created_time).getTime() - new Date(b.updated_time || b.created_time).getTime());
         break;
       case "name":
         result.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -367,7 +367,7 @@ export default function Dashboard() {
     if (filteredAds.length === 0) return;
     const headers = [
       "Ad ID", "Ad Name", "Account ID", "Campaign", "Campaign ID",
-      "Ad Set", "Ad Set ID", "30d Spend", "Policy Violation", "Review Feedback", "Created Time", "Appeal URL",
+      "Ad Set", "Ad Set ID", "30d Spend", "Policy Violation", "Review Feedback", "Disapproved Date", "Created Time", "Appeal URL",
     ];
     const rows = filteredAds.map((ad) => {
       const accountId = ad.account_id?.replace(/^act_/, "") || "";
@@ -384,6 +384,7 @@ export default function Dashboard() {
         ad.spend_30d?.toFixed(2) ?? "",
         (ad.policy_violations ?? []).join("; "),
         (ad.parsed_review_feedback ?? []).map((f) => `${f.key}: ${f.body}`).join("; "),
+        ad.updated_time || "",
         ad.created_time || "",
         appealUrl,
       ];
@@ -1076,8 +1077,8 @@ function AdCard({
               )}
               {ad.updated_time && (
                 <div>
-                  <span className="text-[10px] text-muted-foreground tracking-wider">更新時間</span>
-                  <p className="text-sm mt-0.5">{new Date(ad.updated_time).toLocaleString("zh-TW")}</p>
+                  <span className="text-[10px] text-muted-foreground tracking-wider">拒登日期</span>
+                  <p className="text-sm mt-0.5 text-rose-600 dark:text-rose-400 font-medium">{new Date(ad.updated_time).toLocaleString("zh-TW")}</p>
                 </div>
               )}
             </div>

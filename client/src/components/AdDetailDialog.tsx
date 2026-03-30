@@ -229,8 +229,8 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
             )}
             {ad.updated_time && (
               <div>
-                <span className="text-[10px] text-muted-foreground tracking-wider">更新時間</span>
-                <p className="mt-0.5">{new Date(ad.updated_time).toLocaleString("zh-TW")}</p>
+                <span className="text-[10px] text-muted-foreground tracking-wider">拒登日期</span>
+                <p className="mt-0.5 text-rose-600 dark:text-rose-400 font-medium">{new Date(ad.updated_time).toLocaleString("zh-TW")}</p>
               </div>
             )}
           </div>

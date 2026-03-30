@@ -12,3 +12,8 @@
 - [x] Write vitest tests for settings procedures (8 tests passing)
 - [ ] Verify token save/load flow end-to-end
 - [ ] Save checkpoint and deliver
+
+## Disapproval Date Filtering
+- [x] Research Meta Graph API for disapproval date field (no dedicated field; updated_time is best proxy)
+- [x] Update time filtering logic to use disapproval date (updated_time) instead of creation date
+- [x] Update Dashboard UI to reflect the new date logic (labels, sort, CSV, ad card display)
