@@ -268,53 +268,85 @@ export async function fetchAdAccounts(accessToken: string): Promise<AdAccount[]>
 }
 
 /**
- * Fetch disapproved ads for a specific ad account
+ * Fetch disapproved ads for a specific ad account.
+ * Uses progressive fallback: full fields → minimal fields → bare minimum fields.
+ * Properly distinguishes permission errors (Code 200) from data-too-large errors (Code 1).
  */
 export async function fetchDisapprovedAds(
   accessToken: string,
-  accountId: string,
-  limit: number = 25
+  accountId: string
 ): Promise<DisapprovedAd[]> {
   const allAds: DisapprovedAd[] = [];
   const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
 
-  // Two field sets: full (default) and minimal (fallback for large accounts)
-  const fullFields = [
-    'id', 'name', 'effective_status', 'ad_review_feedback',
-    'issues_info',
-    'created_time', 'updated_time', 'campaign_id', 'adset_id',
-    'campaign{id,name}', 'adset{id,name}',
-    'creative{id,name,thumbnail_url,body,title,image_url,link_url,call_to_action_type}'
-  ].join(',');
+  // Progressive field reduction tiers
+  const tiers = [
+    {
+      label: 'full',
+      limit: 15,
+      fields: [
+        'id', 'name', 'effective_status', 'ad_review_feedback',
+        'issues_info', 'created_time', 'updated_time', 'campaign_id', 'adset_id',
+        'campaign{id,name}', 'adset{id,name}',
+        'creative{id,name,thumbnail_url,body,title,image_url,link_url,call_to_action_type}'
+      ].join(','),
+    },
+    {
+      label: 'medium',
+      limit: 10,
+      fields: [
+        'id', 'name', 'effective_status', 'ad_review_feedback',
+        'created_time', 'campaign_id', 'adset_id',
+        'campaign{id,name}', 'adset{id,name}',
+        'creative{id,name,thumbnail_url,title}'
+      ].join(','),
+    },
+    {
+      label: 'minimal',
+      limit: 5,
+      fields: [
+        'id', 'name', 'effective_status', 'ad_review_feedback',
+        'created_time', 'creative{id,thumbnail_url}'
+      ].join(','),
+    },
+    {
+      label: 'bare',
+      limit: 3,
+      fields: 'id,name,effective_status,ad_review_feedback,created_time',
+    },
+  ];
 
-  const minimalFields = [
-    'id', 'name', 'effective_status', 'ad_review_feedback',
-    'created_time', 'updated_time', 'campaign_id', 'adset_id',
-    'campaign{id,name}', 'adset{id,name}',
-    'creative{id,name,thumbnail_url,title,body}'
-  ].join(',');
+  let tierIndex = 0;
 
-  // Try with full fields first; on Code 1 error, retry with minimal fields + smaller limit
-  let currentFields = fullFields;
-  let currentLimit = limit;
-  let retried = false;
+  function buildUrl(tier: typeof tiers[0], cursor?: string): string {
+    let u = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${tier.fields}&limit=${tier.limit}&access_token=${accessToken}`;
+    if (cursor) u += `&after=${cursor}`;
+    return u;
+  }
 
-  let url = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${currentFields}&review_feedback_breakdown=true&limit=${currentLimit}&access_token=${accessToken}`;
+  let url = buildUrl(tiers[tierIndex]);
 
   while (url) {
     const response = await fetch(url);
     const data: ApiResponse<DisapprovedAd> = await response.json();
 
     if (data.error) {
-      // Code 1 = "Please reduce the amount of data" — retry with smaller payload
-      if (data.error.code === 1 && !retried) {
-        retried = true;
-        currentFields = minimalFields;
-        currentLimit = 10;
-        url = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${currentFields}&review_feedback_breakdown=true&limit=${currentLimit}&access_token=${accessToken}`;
-        console.warn(`[${formattedId}] Data too large, retrying with minimal fields (limit=${currentLimit})`);
+      // Code 200 = Permission denied — skip this account entirely
+      if (data.error.code === 200) {
+        console.warn(`[${formattedId}] Permission denied, skipping`);
+        throw new Error(`[${formattedId}] 權限不足：帳號擁有者未授權 ads_read 權限`);
+      }
+
+      // Code 1 = Data too large — try next tier
+      if (data.error.code === 1 && tierIndex < tiers.length - 1) {
+        tierIndex++;
+        const nextTier = tiers[tierIndex];
+        console.warn(`[${formattedId}] Data too large, falling back to ${nextTier.label} tier (limit=${nextTier.limit})`);
+        url = buildUrl(nextTier);
         continue;
       }
+
+      // All tiers exhausted or other error
       throw new Error(`API Error for ${formattedId}: ${data.error.message} (Code: ${data.error.code})`);
     }
 

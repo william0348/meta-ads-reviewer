@@ -636,20 +636,43 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Error list */}
-      {errors.length > 0 && (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
-          <h4 className="text-sm font-medium text-amber-600 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" />
-            部分帳號發生錯誤
-          </h4>
-          {errors.map((err, i) => (
-            <p key={i} className="text-xs text-muted-foreground font-mono">
-              {err.accountId}: {err.error}
-            </p>
-          ))}
-        </div>
-      )}
+      {/* Error list — categorized */}
+      {errors.length > 0 && (() => {
+        const permErrors = errors.filter(e => e.error.includes('權限不足') || e.error.includes('permission') || e.error.includes('Code: 200'));
+        const otherErrors = errors.filter(e => !e.error.includes('權限不足') && !e.error.includes('permission') && !e.error.includes('Code: 200'));
+        return (
+          <div className="space-y-3">
+            {permErrors.length > 0 && (
+              <details className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
+                <summary className="text-sm font-medium text-amber-600 flex items-center gap-2 cursor-pointer">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  {permErrors.length} 個帳號權限不足（帳號擁有者未授權 ads_read）
+                </summary>
+                <div className="mt-2 space-y-1 pl-6">
+                  {permErrors.map((err, i) => (
+                    <p key={i} className="text-xs text-muted-foreground font-mono">
+                      {err.accountId}
+                    </p>
+                  ))}
+                </div>
+              </details>
+            )}
+            {otherErrors.length > 0 && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 space-y-2">
+                <h4 className="text-sm font-medium text-red-600 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  {otherErrors.length} 個帳號發生錯誤
+                </h4>
+                {otherErrors.map((err, i) => (
+                  <p key={i} className="text-xs text-muted-foreground font-mono">
+                    {err.accountId}: {err.error}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Empty state */}
       {hasToken && ads.length === 0 && !loading && cacheAge === null && (
