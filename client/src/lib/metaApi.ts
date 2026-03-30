@@ -273,25 +273,48 @@ export async function fetchAdAccounts(accessToken: string): Promise<AdAccount[]>
 export async function fetchDisapprovedAds(
   accessToken: string,
   accountId: string,
-  limit: number = 100
+  limit: number = 25
 ): Promise<DisapprovedAd[]> {
   const allAds: DisapprovedAd[] = [];
-  const fields = [
+  const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+
+  // Two field sets: full (default) and minimal (fallback for large accounts)
+  const fullFields = [
     'id', 'name', 'effective_status', 'ad_review_feedback',
     'issues_info',
     'created_time', 'updated_time', 'campaign_id', 'adset_id',
     'campaign{id,name}', 'adset{id,name}',
-    'creative{id,name,thumbnail_url,body,title,image_url,link_url,call_to_action_type,object_story_spec}'
+    'creative{id,name,thumbnail_url,body,title,image_url,link_url,call_to_action_type}'
   ].join(',');
 
-  const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+  const minimalFields = [
+    'id', 'name', 'effective_status', 'ad_review_feedback',
+    'created_time', 'updated_time', 'campaign_id', 'adset_id',
+    'campaign{id,name}', 'adset{id,name}',
+    'creative{id,name,thumbnail_url,title,body}'
+  ].join(',');
 
-  let url = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${fields}&review_feedback_breakdown=true&limit=${limit}&access_token=${accessToken}`;
+  // Try with full fields first; on Code 1 error, retry with minimal fields + smaller limit
+  let currentFields = fullFields;
+  let currentLimit = limit;
+  let retried = false;
+
+  let url = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${currentFields}&review_feedback_breakdown=true&limit=${currentLimit}&access_token=${accessToken}`;
 
   while (url) {
     const response = await fetch(url);
     const data: ApiResponse<DisapprovedAd> = await response.json();
+
     if (data.error) {
+      // Code 1 = "Please reduce the amount of data" — retry with smaller payload
+      if (data.error.code === 1 && !retried) {
+        retried = true;
+        currentFields = minimalFields;
+        currentLimit = 10;
+        url = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${currentFields}&review_feedback_breakdown=true&limit=${currentLimit}&access_token=${accessToken}`;
+        console.warn(`[${formattedId}] Data too large, retrying with minimal fields (limit=${currentLimit})`);
+        continue;
+      }
       throw new Error(`API Error for ${formattedId}: ${data.error.message} (Code: ${data.error.code})`);
     }
 
