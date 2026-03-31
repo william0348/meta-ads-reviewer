@@ -2,7 +2,8 @@
  * Dashboard Page — Disapproved Ads Overview
  *
  * Features:
- * - Cached data in localStorage
+ * - Background data fetching via DashboardDataContext (persists across navigation)
+ * - Auto-refresh with configurable interval
  * - Group / Account multi-select filter
  * - Time range filter (default 30 days)
  * - Sort by 30-day spend
@@ -10,15 +11,15 @@
  * - Properly parsed review_feedback
  * - Ad detail dialog (view-only) with appeal
  * - One-click appeal link via BM ID
- * - Batch select & appeal (re-review) via Graph API batch endpoint
+ * - Batch select & appeal (re-review) via Graph API
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import {
   AlertTriangle, Search, RefreshCw, ChevronDown, ChevronUp,
   XCircle, Loader2, ImageOff, Filter, Download, ArrowUpDown,
   Eye, Database, ExternalLink, Calendar, FolderOpen,
-  CheckSquare, Square, RotateCcw,
+  CheckSquare, Square, RotateCcw, Timer, TimerOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,17 +30,13 @@ import {
 import { toast } from "sonner";
 import { Link } from "wouter";
 import {
-  fetchAdAccounts, fetchAllDisapprovedAds, parseReviewFeedback,
-  extractPolicyViolations,
-  filterAdsByDateRange, getDefaultDateRange, buildAppealUrl,
-  fetchBmIdsForAccounts, batchRequestAdReview,
-  type DisapprovedAd, type AdAccount, type BatchAppealResult,
+  parseReviewFeedback,
+  filterAdsByDateRange, buildAppealUrl,
+  batchRequestAdReview,
+  type DisapprovedAd, type BatchAppealResult,
 } from "@/lib/metaApi";
 import {
-  getAccessToken, getManualAccounts, getAutoFetch,
-  getCachedAds, setCachedAds, clearCachedAds, getCacheAge,
-  getAccountGroups, getAllAccountIds, getAccountIdsForGroup,
-  getBmIdCache, setBmIdForAccount, getAppealUrl, getAccountNamesCache, setAccountNames,
+  getAccessToken, getAccountGroups,
   type AccountGroup,
 } from "@/lib/store";
 import CopyableId from "@/components/CopyableId";
@@ -51,6 +48,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useDashboardData } from "@/contexts/DashboardDataContext";
 
 type SortMode = "newest" | "oldest" | "spend_desc" | "spend_asc" | "name" | "account_name";
 type DateRange = "7d" | "14d" | "30d" | "60d" | "90d" | "all";
@@ -62,6 +60,14 @@ const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
   { value: "60d", label: "拒登 60 天內" },
   { value: "90d", label: "拒登 90 天內" },
   { value: "all", label: "全部時間" },
+];
+
+const AUTO_REFRESH_OPTIONS: { value: string; label: string }[] = [
+  { value: "off", label: "關閉自動刷新" },
+  { value: "5", label: "每 5 分鐘" },
+  { value: "15", label: "每 15 分鐘" },
+  { value: "30", label: "每 30 分鐘" },
+  { value: "60", label: "每 60 分鐘" },
 ];
 
 function getDateRangeFromPreset(preset: DateRange): { start: Date; end: Date } | null {
@@ -76,24 +82,23 @@ function getDateRangeFromPreset(preset: DateRange): { start: Date; end: Date } |
 }
 
 export default function Dashboard() {
-  const [ads, setAds] = useState<DisapprovedAd[]>([]);
-  const [loading, setLoading] = useState(false);
+  // ── Global state from DashboardDataContext ──
+  const {
+    ads, loading, errors, cacheAge, bmCache, accountNames,
+    batchProgress, autoRefreshInterval,
+    fetchData, clearCache, setAutoRefreshInterval, setAds, setErrors,
+  } = useDashboardData();
+
+  // ── Local UI state ──
   const [searchQuery, setSearchQuery] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
   const [sortMode, setSortMode] = useState<SortMode>("spend_desc");
   const [dateRange, setDateRange] = useState<DateRange>("30d");
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
-  const [errors, setErrors] = useState<{ accountId: string; error: string }[]>([]);
-  const [cacheAge, setCacheAgeStr] = useState<string | null>(null);
   const [selectedAd, setSelectedAd] = useState<DisapprovedAd | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [groups, setGroups] = useState<AccountGroup[]>([]);
-  const [bmCache, setBmCache] = useState<Record<string, { bmId: string; bmName: string }>>({});
-  const [accountNames, setAccountNamesState] = useState<Record<string, string>>({});
-
-  // Batch loading progress
-  const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; batch: number; totalBatches: number } | null>(null);
+  const [groups] = useState<AccountGroup[]>(() => getAccountGroups());
 
   // Batch selection & appeal state
   const [selectedAdIds, setSelectedAdIds] = useState<Set<string>>(new Set());
@@ -105,183 +110,6 @@ export default function Dashboard() {
 
   const accessToken = getAccessToken();
   const hasToken = !!accessToken;
-
-  // Load cached data and groups on mount
-  useEffect(() => {
-    const cached = getCachedAds();
-    if (cached) {
-      const reparsed = cached.ads.map((ad) => ({
-        ...ad,
-        parsed_review_feedback: ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback),
-        policy_violations: ad.policy_violations ?? extractPolicyViolations(ad.ad_review_feedback, ad.issues_info),
-      }));
-      setAds(reparsed);
-      setErrors(cached.errors);
-      setCacheAgeStr(getCacheAge());
-    }
-    setGroups(getAccountGroups());
-    setBmCache(getBmIdCache());
-    setAccountNamesState(getAccountNamesCache());
-  }, []);
-
-  // Refresh cache age display every minute
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCacheAgeStr(getCacheAge());
-    }, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchData = useCallback(async () => {
-    if (!accessToken) {
-      toast.error("請先在設定頁面配置 Access Token");
-      return;
-    }
-
-    setLoading(true);
-    setAds([]);
-    setErrors([]);
-    setBatchProgress(null);
-
-    try {
-      const accountIds: string[] = [];
-      const autoFetch = getAutoFetch();
-      const manualAccounts = getManualAccounts();
-      const groupAccounts = getAccountGroups().flatMap((g) => g.accountIds);
-
-      if (autoFetch) {
-        try {
-          const fetchedAccounts = await fetchAdAccounts(accessToken);
-          accountIds.push(...fetchedAccounts.map((a) => a.id));
-        } catch (err) {
-          toast.error("無法取得廣告帳號列表：" + (err instanceof Error ? err.message : "未知錯誤"));
-        }
-      }
-
-      // Add manual accounts
-      for (const id of manualAccounts) {
-        const formattedId = id.startsWith("act_") ? id : `act_${id}`;
-        if (!accountIds.includes(formattedId)) {
-          accountIds.push(formattedId);
-        }
-      }
-
-      // Add group accounts
-      for (const id of groupAccounts) {
-        const formattedId = id.startsWith("act_") ? id : `act_${id}`;
-        if (!accountIds.includes(formattedId)) {
-          accountIds.push(formattedId);
-        }
-      }
-
-      if (accountIds.length === 0) {
-        toast.error("沒有找到任何廣告帳號。請確認 Token 權限或手動新增帳號。");
-        setLoading(false);
-        return;
-      }
-
-      const totalAccounts = accountIds.length;
-      const batchSize = 20;
-      const totalBatches = Math.ceil(totalAccounts / batchSize);
-      toast.info(`正在從 ${totalAccounts} 個帳號中搜尋被拒登廣告（共 ${totalBatches} 批，每批 ${batchSize} 個帳號）...`);
-
-      // Use incremental loading — update UI after each batch
-      const result = await fetchAllDisapprovedAds(accessToken, accountIds, (update) => {
-        // Update progress indicator
-        setBatchProgress({
-          completed: update.completedAccounts,
-          total: update.totalAccounts,
-          batch: update.currentBatchIndex,
-          totalBatches: update.totalBatches,
-        });
-
-        // Incrementally update displayed ads after each batch
-        setAds((prev) => {
-          const existingIds = new Set(prev.map(a => a.id));
-          const newAds = update.batchAds.filter(a => !existingIds.has(a.id));
-          return [...prev, ...newAds];
-        });
-        setErrors((prev) => [...prev, ...update.batchErrors]);
-
-        // Update account names incrementally
-        const names: Record<string, string> = {};
-        for (const ad of update.batchAds) {
-          if (ad.account_name && ad.account_id) {
-            names[ad.account_id.replace(/^act_/, '')] = ad.account_name;
-          }
-        }
-        if (Object.keys(names).length > 0) {
-          setAccountNames(names);
-          setAccountNamesState(getAccountNamesCache());
-        }
-
-        toast.info(`第 ${update.currentBatchIndex}/${update.totalBatches} 批完成，已找到 ${update.batchAds.length} 個拒登廣告`, { duration: 2000 });
-      });
-
-      // Final state — set complete results and cache
-      setAds(result.ads);
-      setErrors(result.errors);
-      setBatchProgress(null);
-
-      setCachedAds(result.ads, result.errors);
-      setCacheAgeStr("剛剛");
-
-      // Update account names from all ads
-      const names: Record<string, string> = {};
-      for (const ad of result.ads) {
-        if (ad.account_name && ad.account_id) {
-          names[ad.account_id.replace(/^act_/, '')] = ad.account_name;
-        }
-      }
-      if (Object.keys(names).length > 0) {
-        setAccountNames(names);
-        setAccountNamesState(getAccountNamesCache());
-      }
-
-      if (result.ads.length > 0) {
-        toast.success(`全部完成！共找到 ${result.ads.length} 個被拒登廣告`);
-      } else {
-        toast.info("沒有找到被拒登的廣告");
-      }
-
-      if (result.errors.length > 0) {
-        toast.warning(`${result.errors.length} 個帳號發生錯誤`);
-      }
-
-      // Auto-fetch BM IDs for all account IDs
-      const currentBmCache = getBmIdCache();
-      const allAccountIdsForBm = Array.from(new Set(
-        accountIds.map(id => id.replace(/^act_/, ''))
-      ));
-      const uncachedBmIds = allAccountIdsForBm.filter(id => !currentBmCache[id]);
-      if (uncachedBmIds.length > 0 && accessToken) {
-        try {
-          const bmResults = await fetchBmIdsForAccounts(accessToken, uncachedBmIds);
-          for (const [accountId, bm] of Object.entries(bmResults)) {
-            setBmIdForAccount(accountId, bm.bmId, bm.bmName);
-          }
-          setBmCache(getBmIdCache());
-          if (Object.keys(bmResults).length > 0) {
-            toast.success(`自動取得 ${Object.keys(bmResults).length} 個帳號的 BM ID`);
-          }
-        } catch {
-          console.warn('Auto BM ID fetch failed');
-        }
-      }
-    } catch (err) {
-      toast.error("發生錯誤：" + (err instanceof Error ? err.message : "未知錯誤"));
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken]);
-
-  const handleClearCache = () => {
-    clearCachedAds();
-    setAds([]);
-    setErrors([]);
-    setCacheAgeStr(null);
-    toast.success("快取已清除");
-  };
 
   // Unique account IDs from ads
   const uniqueAccountIds = useMemo(() => {
@@ -482,13 +310,44 @@ export default function Dashboard() {
             {!cacheAge && (
               <span className="text-xs text-muted-foreground">尚未載入資料</span>
             )}
+            {autoRefreshInterval && (
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                <Timer className="w-3 h-3" />
+                自動刷新：每 {autoRefreshInterval} 分鐘
+              </span>
+            )}
+            {loading && (
+              <span className="inline-flex items-center gap-1 text-xs text-primary">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                背景載入中...
+              </span>
+            )}
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {/* Auto-refresh control */}
+          <Select
+            value={autoRefreshInterval ? String(autoRefreshInterval) : "off"}
+            onValueChange={(v) => setAutoRefreshInterval(v === "off" ? null : parseInt(v))}
+          >
+            <SelectTrigger className="w-36 h-8 text-xs">
+              {autoRefreshInterval ? (
+                <Timer className="w-3 h-3 mr-1 text-emerald-600" />
+              ) : (
+                <TimerOff className="w-3 h-3 mr-1 text-muted-foreground" />
+              )}
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AUTO_REFRESH_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {cacheAge && (
             <Button
               variant="ghost" size="sm"
-              onClick={handleClearCache}
+              onClick={clearCache}
               className="gap-1.5 text-xs text-muted-foreground"
             >
               <XCircle className="w-3 h-3" />
@@ -887,7 +746,7 @@ export default function Dashboard() {
             <AlertDialogTitle>確認批次申請重新審核</AlertDialogTitle>
             <AlertDialogDescription>
               即將對 <strong>{selectedAdIds.size}</strong> 個被拒登廣告提交重新審核申請。
-              此操作會透過 Meta Graph API Batch 端點將每個廣告的狀態設為 ACTIVE，
+              此操作會透過 Meta Graph API 將每個廣告的狀態設為 ACTIVE，
               觸發 Meta 的重新審核流程。
               <br /><br />
               <span className="text-amber-600">注意：每個 API 呼叫都會計入速率限制配額。</span>

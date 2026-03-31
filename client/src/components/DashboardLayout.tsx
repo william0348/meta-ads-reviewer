@@ -21,7 +21,10 @@ import {
   CloudOff,
   LogIn,
   LogOut,
+  Loader2,
+  Timer,
 } from "lucide-react";
+import { useDashboardData } from "@/contexts/DashboardDataContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
@@ -57,6 +60,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { isAuthenticated, user, logout } = useAuth();
+  const { loading, batchProgress, autoRefreshInterval, ads } = useDashboardData();
 
   return (
     <div className="min-h-screen flex bg-background text-foreground">
@@ -99,6 +103,40 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           </div>
         </div>
+
+        {/* Background loading indicator */}
+        {loading && location !== "/" && (
+          <div className="mx-3 mt-3 p-2.5 rounded-lg bg-primary/5 border border-primary/10">
+            <div className="flex items-center gap-2 text-xs text-primary">
+              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+              <span className="font-medium">背景載入中...</span>
+            </div>
+            {batchProgress && (
+              <div className="mt-1.5">
+                <div className="text-[10px] text-muted-foreground">
+                  {batchProgress.completed}/{batchProgress.total} 帳號
+                  {ads.length > 0 && ` · ${ads.length} 廣告`}
+                </div>
+                <div className="mt-1 h-1 rounded-full bg-primary/10 overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${(batchProgress.completed / batchProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Auto-refresh indicator in sidebar */}
+        {!loading && autoRefreshInterval && location !== "/" && (
+          <div className="mx-3 mt-3 px-2.5 py-1.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+            <div className="flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400">
+              <Timer className="w-3 h-3 shrink-0" />
+              <span>自動刷新：每 {autoRefreshInterval} 分鐘</span>
+            </div>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="flex-1 p-3 space-y-1">

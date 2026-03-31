@@ -8,6 +8,7 @@ import DashboardLayout from "./components/DashboardLayout";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Accounts from "./pages/Accounts";
+import { DashboardDataProvider } from "./contexts/DashboardDataContext";
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
@@ -28,8 +29,10 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light" switchable>
         <TooltipProvider>
-          <Toaster />
-          <Router />
+          <DashboardDataProvider>
+            <Toaster />
+            <Router />
+          </DashboardDataProvider>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

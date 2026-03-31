@@ -10,10 +10,17 @@
 - [x] Migrate other localStorage data (account groups, manual accounts) to DB sync
 - [x] Update DashboardLayout sidebar with login/logout and cloud sync status
 - [x] Write vitest tests for settings procedures (8 tests passing)
-- [ ] Verify token save/load flow end-to-end
-- [ ] Save checkpoint and deliver
+- [x] Verify token save/load flow end-to-end
+- [x] Save checkpoint and deliver
 
 ## Disapproval Date Filtering
 - [x] Research Meta Graph API for disapproval date field (no dedicated field; updated_time is best proxy)
 - [x] Update time filtering logic to use disapproval date (updated_time) instead of creation date
 - [x] Update Dashboard UI to reflect the new date logic (labels, sort, CSV, ad card display)
+
+## Background Dashboard Execution
+- [x] Create global DashboardDataContext for persistent data across page navigation
+- [x] Move fetchData logic from Dashboard component into the context provider
+- [x] Add auto-refresh interval support (configurable timer)
+- [x] Update Dashboard to consume global context instead of local state
+- [x] Show background loading indicator in sidebar when data is being fetched
