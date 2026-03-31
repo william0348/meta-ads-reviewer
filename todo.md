@@ -42,3 +42,21 @@
 - [x] Show status badge (Active/Disabled/etc.) next to each auto-fetched account
 - [x] Add filter pills (All/Active/Disabled/Other) to quickly find accounts by status
 - [x] Highlight Disabled accounts with distinct rose-colored badge styling
+
+## Per-Ad Refresh & Data Persistence to DB
+- [x] Create disapproved_ads DB table (ad_id, user_id, account_id, ad data JSON, timestamps)
+- [x] Add DB helpers: saveAds, loadAds, updateSingleAd
+- [x] Add tRPC procedures: ads.save, ads.load, ads.updateOne, ads.clear, ads.recordFetch, ads.lastFetch
+- [x] Add fetchSingleAd function in metaApi.ts to re-fetch one ad's latest data
+- [x] Update DashboardDataContext to save ads to DB after fetch and load from DB on mount
+- [x] Add per-ad refresh button in Dashboard ad rows
+- [x] Add per-ad refresh button in AdDetailDialog
+- [x] Ensure data loads from DB on app open (no re-fetch needed)
+- [x] Write vitest tests for ads router (8 tests passing)
+
+## Dashboard Status Tab Navigation
+- [x] Add status tab bar: 可提交審查 / 審查中 / 已獲准 / 維持禁止刊登
+- [x] Classify ads by effective_status into tabs with counts
+- [x] Show colored count badges on each tab
+- [x] Update ad card Badge to show effective_status (PENDING_REVIEW, ACTIVE, etc.) with dynamic colors
+- [x] Make status tabs work with existing filters (group, account, date, search)

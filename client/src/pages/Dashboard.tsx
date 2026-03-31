@@ -52,6 +52,27 @@ import { useDashboardData } from "@/contexts/DashboardDataContext";
 
 type SortMode = "newest" | "oldest" | "spend_desc" | "spend_asc" | "name" | "account_name";
 type DateRange = "7d" | "14d" | "30d" | "60d" | "90d" | "all";
+type StatusTab = "all" | "appealable" | "pending_review" | "approved" | "still_disapproved";
+
+/** Classify an ad into a status tab category based on effective_status */
+function classifyAdStatus(ad: DisapprovedAd): StatusTab {
+  const es = (ad.effective_status || "").toUpperCase();
+  if (es === "PENDING_REVIEW" || es === "IN_PROCESS") return "pending_review";
+  if (es === "ACTIVE" || es === "PREAPPROVED") return "approved";
+  // DISAPPROVED ads that were previously appealed (have been set to ACTIVE then back to DISAPPROVED)
+  // We treat all DISAPPROVED as "appealable" by default — user can appeal again
+  if (es === "DISAPPROVED" || es === "WITH_ISSUES") return "appealable";
+  // For any other status (PAUSED, ARCHIVED, etc.), treat as still_disapproved
+  return "still_disapproved";
+}
+
+const STATUS_TABS: { value: StatusTab; label: string; color: string; bgColor: string; countColor: string }[] = [
+  { value: "all", label: "全部", color: "text-foreground", bgColor: "bg-muted", countColor: "bg-muted-foreground/20 text-foreground" },
+  { value: "appealable", label: "可提交審查", color: "text-rose-700 dark:text-rose-400", bgColor: "bg-rose-50 dark:bg-rose-950/30", countColor: "bg-rose-500 text-white" },
+  { value: "pending_review", label: "審查中", color: "text-amber-700 dark:text-amber-400", bgColor: "bg-amber-50 dark:bg-amber-950/30", countColor: "bg-amber-500 text-white" },
+  { value: "approved", label: "已獲准", color: "text-emerald-700 dark:text-emerald-400", bgColor: "bg-emerald-50 dark:bg-emerald-950/30", countColor: "bg-emerald-500 text-white" },
+  { value: "still_disapproved", label: "維持禁止刊登", color: "text-gray-700 dark:text-gray-400", bgColor: "bg-gray-50 dark:bg-gray-950/30", countColor: "bg-red-600 text-white" },
+];
 
 const DATE_RANGE_OPTIONS: { value: DateRange; label: string }[] = [
   { value: "7d", label: "拒登 7 天內" },
@@ -85,11 +106,13 @@ export default function Dashboard() {
   // ── Global state from DashboardDataContext ──
   const {
     ads, loading, errors, cacheAge, bmCache, accountNames,
-    batchProgress, autoRefreshInterval,
+    batchProgress, autoRefreshInterval, refreshingAdId,
     fetchData, clearCache, setAutoRefreshInterval, setAds, setErrors,
+    refreshSingleAd,
   } = useDashboardData();
 
   // ── Local UI state ──
+  const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
@@ -123,9 +146,30 @@ export default function Dashboard() {
     return group ? group.accountIds : null;
   }, [groupFilter, groups]);
 
+  // Status tab counts (computed from all ads, before other filters)
+  const statusCounts = useMemo(() => {
+    const counts: Record<StatusTab, number> = {
+      all: ads.length,
+      appealable: 0,
+      pending_review: 0,
+      approved: 0,
+      still_disapproved: 0,
+    };
+    for (const ad of ads) {
+      const cat = classifyAdStatus(ad);
+      counts[cat]++;
+    }
+    return counts;
+  }, [ads]);
+
   // Filtered and sorted ads
   const filteredAds = useMemo(() => {
     let result = [...ads];
+
+    // Status tab filter
+    if (statusTab !== "all") {
+      result = result.filter((ad) => classifyAdStatus(ad) === statusTab);
+    }
 
     // Time range filter
     const range = getDateRangeFromPreset(dateRange);
@@ -382,6 +426,34 @@ export default function Dashboard() {
         <StatsCard label="篩選結果" value={filteredAds.length} icon={<Filter className="w-4 h-4" />} color="sky" />
         <StatsCard label="錯誤帳號" value={errors.length} icon={<AlertTriangle className="w-4 h-4" />} color="amber" />
       </div>
+
+      {/* Status Tab Bar */}
+      {hasToken && ads.length > 0 && (
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-muted/50 border border-border overflow-x-auto">
+          {STATUS_TABS.map((tab) => {
+            const count = statusCounts[tab.value];
+            const isActive = statusTab === tab.value;
+            return (
+              <button
+                key={tab.value}
+                onClick={() => setStatusTab(tab.value)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
+                  isActive
+                    ? `${tab.bgColor} ${tab.color} shadow-sm`
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/80'
+                }`}
+              >
+                {tab.label}
+                <span className={`inline-flex items-center justify-center min-w-[1.5rem] h-5 px-1.5 rounded-full text-xs font-bold ${
+                  isActive ? tab.countColor : 'bg-muted-foreground/10 text-muted-foreground'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* No token warning */}
       {!hasToken && (
@@ -724,6 +796,8 @@ export default function Dashboard() {
               accountNames={accountNames}
               selected={selectedAdIds.has(ad.id)}
               onToggleSelect={() => toggleAdSelection(ad.id)}
+              onRefresh={() => refreshSingleAd(ad.id)}
+              isRefreshing={refreshingAdId === ad.id}
             />
           ))}
         </div>
@@ -734,9 +808,17 @@ export default function Dashboard() {
         ad={selectedAd}
         open={detailOpen}
         onOpenChange={setDetailOpen}
-        onAdUpdated={() => {
-          toast.info("資料已變更，建議重新載入以取得最新狀態");
+        onAdUpdated={async () => {
+          if (selectedAd) {
+            const updated = await refreshSingleAd(selectedAd.id);
+            if (updated) setSelectedAd(updated);
+          }
         }}
+        onRefresh={selectedAd ? async () => {
+          const updated = await refreshSingleAd(selectedAd.id);
+          if (updated) setSelectedAd(updated);
+        } : undefined}
+        isRefreshing={!!selectedAd && refreshingAdId === selectedAd.id}
       />
 
       {/* Batch Appeal Confirmation Dialog */}
@@ -803,7 +885,7 @@ function StatsCard({
 /* ─── Ad Card ─── */
 function AdCard({
   ad, index, expanded, onToggle, onViewDetail, bmCache, accountNames,
-  selected, onToggleSelect,
+  selected, onToggleSelect, onRefresh, isRefreshing,
 }: {
   ad: DisapprovedAd;
   index: number;
@@ -814,6 +896,8 @@ function AdCard({
   accountNames: Record<string, string>;
   selected: boolean;
   onToggleSelect: () => void;
+  onRefresh: () => void;
+  isRefreshing: boolean;
 }) {
   const feedbackItems = ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback);
   const accountId = ad.account_id?.replace(/^act_/, "") || "";
@@ -853,9 +937,29 @@ function AdCard({
         <div className="flex-1 min-w-0" style={{ minWidth: 0 }}>
           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
             <span className="text-sm font-medium truncate">{ad.name || "Unnamed Ad"}</span>
-            <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
-              Disapproved
-            </Badge>
+            {(() => {
+              const es = (ad.effective_status || "").toUpperCase();
+              if (es === "PENDING_REVIEW" || es === "IN_PROCESS") return (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0 border-amber-400 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 animate-pulse">
+                  審查中
+                </Badge>
+              );
+              if (es === "ACTIVE" || es === "PREAPPROVED") return (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0 border-emerald-400 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50">
+                  已獲准
+                </Badge>
+              );
+              if (es === "WITH_ISSUES") return (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0 border-orange-400 text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/50">
+                  有問題
+                </Badge>
+              );
+              return (
+                <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                  被拒登
+                </Badge>
+              );
+            })()}
             {/* Policy violation badges */}
             {ad.policy_violations && ad.policy_violations.length > 0 && ad.policy_violations.map((v, i) => (
               <Badge key={i} variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0 border-amber-400 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50">
@@ -1007,6 +1111,16 @@ function AdCard({
               <Button variant="default" size="sm" className="gap-1.5 text-xs" onClick={onViewDetail}>
                 <Eye className="w-3 h-3" />
                 查看詳情
+              </Button>
+
+              <Button
+                variant="outline" size="sm"
+                className="gap-1.5 text-xs"
+                onClick={onRefresh}
+                disabled={isRefreshing}
+              >
+                <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {isRefreshing ? '更新中...' : '更新此廣告'}
               </Button>
 
               {/* One-click appeal link */}

@@ -5,12 +5,14 @@
  * 1. Data loading continues in the background even when user navigates away
  * 2. When returning to Dashboard, previously loaded data is immediately available
  * 3. Auto-refresh can run on a configurable interval
+ * 4. Fetched ads are persisted to the database for cross-session availability
+ * 5. Individual ads can be refreshed without reloading all accounts
  */
 
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import {
   fetchAdAccounts, fetchAllDisapprovedAds, parseReviewFeedback,
-  extractPolicyViolations, fetchBmIdsForAccounts,
+  extractPolicyViolations, fetchBmIdsForAccounts, fetchSingleAd,
   type DisapprovedAd, type BatchAppealResult,
 } from "@/lib/metaApi";
 import {
@@ -20,6 +22,7 @@ import {
   getAccountNamesCache, setAccountNames,
   getExcludedAccounts, getSelectedAccounts,
 } from "@/lib/store";
+import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 export interface BatchProgress {
@@ -39,6 +42,8 @@ export interface DashboardDataState {
   batchProgress: BatchProgress | null;
   lastFetchTime: number | null;
   autoRefreshInterval: number | null; // in minutes, null = disabled
+  dbLoaded: boolean; // whether we've loaded from DB
+  refreshingAdId: string | null; // ad currently being refreshed
 }
 
 export interface DashboardDataActions {
@@ -47,6 +52,7 @@ export interface DashboardDataActions {
   setAutoRefreshInterval: (minutes: number | null) => void;
   setAds: React.Dispatch<React.SetStateAction<DisapprovedAd[]>>;
   setErrors: React.Dispatch<React.SetStateAction<{ accountId: string; error: string }[]>>;
+  refreshSingleAd: (adId: string) => Promise<DisapprovedAd | null>;
 }
 
 const DashboardDataContext = createContext<(DashboardDataState & DashboardDataActions) | null>(null);
@@ -66,6 +72,8 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
   const [accountNames, setAccountNamesState] = useState<Record<string, string>>({});
   const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState<number | null>(null);
+  const [dbLoaded, setDbLoaded] = useState(false);
+  const [refreshingAdId, setRefreshingAdId] = useState<string | null>(null);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | null>(() => {
     const saved = localStorage.getItem("meta_ads_auto_refresh");
     return saved ? parseInt(saved) : null;
@@ -74,19 +82,59 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
   const fetchingRef = useRef(false);
   const autoRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Load cached data on mount
+  // tRPC mutations for DB persistence
+  const saveAdsMutation = trpc.ads.save.useMutation();
+  const clearAdsMutation = trpc.ads.clear.useMutation();
+  const updateAdMutation = trpc.ads.updateOne.useMutation();
+  const recordFetchMutation = trpc.ads.recordFetch.useMutation();
+
+  // Load from DB on mount (primary source of truth)
+  const { data: dbAds, isLoading: dbLoading, refetch: refetchDbAds } = trpc.ads.load.useQuery(
+    undefined,
+    { enabled: true, staleTime: Infinity, refetchOnWindowFocus: false }
+  );
+
+  // Load from DB when data arrives
   useEffect(() => {
-    const cached = getCachedAds();
-    if (cached) {
-      const reparsed = cached.ads.map((ad) => ({
-        ...ad,
-        parsed_review_feedback: ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback),
-        policy_violations: ad.policy_violations ?? extractPolicyViolations(ad.ad_review_feedback, ad.issues_info),
-      }));
-      setAds(reparsed);
-      setErrors(cached.errors);
-      setCacheAgeStr(getCacheAge());
+    if (dbAds && !dbLoaded && !dbLoading) {
+      if (dbAds.ads.length > 0) {
+        try {
+          const parsedAds: DisapprovedAd[] = dbAds.ads.map(row => {
+            const adData = JSON.parse(row.adData) as DisapprovedAd;
+            return {
+              ...adData,
+              parsed_review_feedback: adData.parsed_review_feedback ?? parseReviewFeedback(adData.ad_review_feedback),
+              policy_violations: adData.policy_violations ?? extractPolicyViolations(adData.ad_review_feedback, adData.issues_info),
+            };
+          });
+          setAds(parsedAds);
+          // Also update localStorage cache for offline/quick access
+          setCachedAds(parsedAds, []);
+          setCacheAgeStr(getCacheAge() || '從資料庫載入');
+          toast.success(`已從資料庫載入 ${parsedAds.length} 個被拒登廣告`);
+        } catch (err) {
+          console.error('[DB] Failed to parse saved ads:', err);
+        }
+      } else {
+        // No DB data — fall back to localStorage cache
+        const cached = getCachedAds();
+        if (cached) {
+          const reparsed = cached.ads.map((ad) => ({
+            ...ad,
+            parsed_review_feedback: ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback),
+            policy_violations: ad.policy_violations ?? extractPolicyViolations(ad.ad_review_feedback, ad.issues_info),
+          }));
+          setAds(reparsed);
+          setErrors(cached.errors);
+          setCacheAgeStr(getCacheAge());
+        }
+      }
+      setDbLoaded(true);
     }
+  }, [dbAds, dbLoaded, dbLoading]);
+
+  // Load BM cache and account names on mount
+  useEffect(() => {
     setBmCache(getBmIdCache());
     setAccountNamesState(getAccountNamesCache());
   }, []);
@@ -107,6 +155,31 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
       localStorage.removeItem("meta_ads_auto_refresh");
     }
   }, [autoRefreshInterval]);
+
+  /**
+   * Save ads to DB in background (non-blocking).
+   */
+  const saveAdsToDb = useCallback(async (adsToSave: DisapprovedAd[]) => {
+    if (adsToSave.length === 0) return;
+    try {
+      // Convert ads to DB format — chunk to avoid payload size issues
+      const chunkSize = 100;
+      for (let i = 0; i < adsToSave.length; i += chunkSize) {
+        const chunk = adsToSave.slice(i, i + chunkSize);
+        const dbAds = chunk.map(ad => ({
+          adId: ad.id,
+          accountId: ad.account_id || '',
+          adName: ad.name || undefined,
+          effectiveStatus: ad.effective_status || undefined,
+          adData: JSON.stringify(ad),
+        }));
+        await saveAdsMutation.mutateAsync({ ads: dbAds });
+      }
+      console.log(`[DB] Saved ${adsToSave.length} ads to database`);
+    } catch (err) {
+      console.warn('[DB] Failed to save ads to database:', err);
+    }
+  }, [saveAdsMutation]);
 
   const fetchData = useCallback(async () => {
     const accessToken = getAccessToken();
@@ -241,8 +314,24 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
       setBatchProgress(null);
       setLastFetchTime(Date.now());
 
+      // Save to localStorage cache
       setCachedAds(result.ads, result.errors);
       setCacheAgeStr("剛剛");
+
+      // Save to DB in background (non-blocking)
+      saveAdsToDb(result.ads);
+
+      // Record fetch history
+      try {
+        await recordFetchMutation.mutateAsync({
+          accountCount: accountIds.length,
+          adCount: result.ads.length,
+          errorCount: result.errors.length,
+          errors: result.errors.length > 0 ? JSON.stringify(result.errors) : undefined,
+        });
+      } catch {
+        console.warn('[DB] Failed to record fetch history');
+      }
 
       // Update account names from all ads
       const names: Record<string, string> = {};
@@ -257,7 +346,7 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
       }
 
       if (result.ads.length > 0) {
-        toast.success(`背景載入完成！共找到 ${result.ads.length} 個被拒登廣告`);
+        toast.success(`背景載入完成！共找到 ${result.ads.length} 個被拒登廣告（已儲存至資料庫）`);
       } else {
         toast.info("沒有找到被拒登的廣告");
       }
@@ -292,7 +381,61 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, []);
+  }, [saveAdsToDb, recordFetchMutation]);
+
+  /**
+   * Refresh a single ad's data from Meta API and update both local state and DB.
+   */
+  const refreshSingleAd = useCallback(async (adId: string): Promise<DisapprovedAd | null> => {
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      toast.error("請先設定 Access Token");
+      return null;
+    }
+
+    setRefreshingAdId(adId);
+    try {
+      const updatedAd = await fetchSingleAd(accessToken, adId);
+      if (!updatedAd) {
+        toast.info("此廣告已不存在或無法取得");
+        return null;
+      }
+
+      // Preserve account_id and account_name from existing ad
+      const existingAd = ads.find(a => a.id === adId);
+      if (existingAd) {
+        updatedAd.account_id = existingAd.account_id;
+        updatedAd.account_name = existingAd.account_name;
+      }
+
+      // Update local state
+      setAds(prev => prev.map(ad => ad.id === adId ? updatedAd : ad));
+
+      // Update localStorage cache
+      const currentAds = ads.map(ad => ad.id === adId ? updatedAd : ad);
+      setCachedAds(currentAds, errors);
+
+      // Update DB
+      try {
+        await updateAdMutation.mutateAsync({
+          adId: updatedAd.id,
+          adName: updatedAd.name || undefined,
+          effectiveStatus: updatedAd.effective_status || undefined,
+          adData: JSON.stringify(updatedAd),
+        });
+      } catch {
+        console.warn('[DB] Failed to update single ad in database');
+      }
+
+      toast.success(`廣告 ${adId} 已更新`);
+      return updatedAd;
+    } catch (err) {
+      toast.error(`更新失敗：${err instanceof Error ? err.message : '未知錯誤'}`);
+      return null;
+    } finally {
+      setRefreshingAdId(null);
+    }
+  }, [ads, errors, updateAdMutation]);
 
   const clearCache = useCallback(() => {
     clearCachedAds();
@@ -300,8 +443,13 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
     setErrors([]);
     setCacheAgeStr(null);
     setLastFetchTime(null);
-    toast.success("快取已清除");
-  }, []);
+    // Also clear DB
+    clearAdsMutation.mutate(undefined, {
+      onSuccess: () => console.log('[DB] Cleared ads from database'),
+      onError: () => console.warn('[DB] Failed to clear ads from database'),
+    });
+    toast.success("快取已清除（含資料庫）");
+  }, [clearAdsMutation]);
 
   // Auto-refresh timer
   useEffect(() => {
@@ -332,7 +480,9 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
       value={{
         ads, loading, errors, cacheAge, bmCache, accountNames,
         batchProgress, lastFetchTime, autoRefreshInterval,
+        dbLoaded, refreshingAdId,
         fetchData, clearCache, setAutoRefreshInterval, setAds, setErrors,
+        refreshSingleAd,
       }}
     >
       {children}

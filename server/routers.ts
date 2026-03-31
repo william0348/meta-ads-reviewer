@@ -2,7 +2,11 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { getUserSettings, upsertUserSettings } from "./db";
+import {
+  getUserSettings, upsertUserSettings,
+  saveDisapprovedAds, loadDisapprovedAds, updateSingleAd,
+  clearDisapprovedAds, recordFetchHistory, getLatestFetchHistory,
+} from "./db";
 import { z } from "zod";
 
 export const appRouter = router({
@@ -111,6 +115,82 @@ export const appRouter = router({
         await upsertUserSettings(ctx.user.id, data);
         return { success: true };
       }),
+  }),
+
+  // ─── Disapproved Ads (Persistent Cache) ───
+  ads: router({
+    /** Save a batch of disapproved ads to the database */
+    save: protectedProcedure
+      .input(z.object({
+        ads: z.array(z.object({
+          adId: z.string(),
+          accountId: z.string(),
+          adName: z.string().optional(),
+          effectiveStatus: z.string().optional(),
+          adData: z.string(), // JSON string of full DisapprovedAd
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const count = await saveDisapprovedAds(ctx.user.id, input.ads);
+        return { success: true, savedCount: count };
+      }),
+
+    /** Load all saved disapproved ads from the database */
+    load: protectedProcedure.query(async ({ ctx }) => {
+      const rows = await loadDisapprovedAds(ctx.user.id);
+      return {
+        ads: rows.map(row => ({
+          adId: row.adId,
+          accountId: row.accountId,
+          adName: row.adName,
+          effectiveStatus: row.effectiveStatus,
+          adData: row.adData,
+          lastRefreshedAt: row.lastRefreshedAt,
+        })),
+      };
+    }),
+
+    /** Update a single ad after per-ad refresh */
+    updateOne: protectedProcedure
+      .input(z.object({
+        adId: z.string(),
+        adName: z.string().optional(),
+        effectiveStatus: z.string().optional(),
+        adData: z.string(), // JSON string of full DisapprovedAd
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const ok = await updateSingleAd(ctx.user.id, input.adId, {
+          adName: input.adName,
+          effectiveStatus: input.effectiveStatus,
+          adData: input.adData,
+        });
+        return { success: ok };
+      }),
+
+    /** Clear all saved ads for the current user */
+    clear: protectedProcedure.mutation(async ({ ctx }) => {
+      await clearDisapprovedAds(ctx.user.id);
+      return { success: true };
+    }),
+
+    /** Record a fetch history entry */
+    recordFetch: protectedProcedure
+      .input(z.object({
+        accountCount: z.number(),
+        adCount: z.number(),
+        errorCount: z.number(),
+        errors: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await recordFetchHistory(ctx.user.id, input);
+        return { success: true };
+      }),
+
+    /** Get the latest fetch history */
+    lastFetch: protectedProcedure.query(async ({ ctx }) => {
+      const history = await getLatestFetchHistory(ctx.user.id);
+      return history;
+    }),
   }),
 });
 

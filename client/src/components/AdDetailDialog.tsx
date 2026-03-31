@@ -18,6 +18,7 @@ import {
   ExternalLink,
   ImageOff,
   Loader2,
+  RefreshCw,
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,14 +27,16 @@ import type { DisapprovedAd } from "@/lib/metaApi";
 import { requestAdReview } from "@/lib/metaApi";
 import { getAccessToken } from "@/lib/store";
 
-interface AdDetailDialogProps {
+export interface AdDetailDialogProps {
   ad: DisapprovedAd | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAdUpdated?: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
-export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: AdDetailDialogProps) {
+export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, onRefresh, isRefreshing }: AdDetailDialogProps) {
   const [isAppealing, setIsAppealing] = useState(false);
 
   if (!ad) return null;
@@ -72,6 +75,11 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
             <Badge variant="destructive" className="shrink-0 text-xs">
               Disapproved
             </Badge>
+            {ad.effective_status && ad.effective_status !== "DISAPPROVED" && (
+              <Badge variant="outline" className="shrink-0 text-xs">
+                {ad.effective_status}
+              </Badge>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -239,6 +247,20 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated }: 
 
           {/* ── Action Buttons ── */}
           <div className="flex flex-wrap gap-2">
+            {/* Refresh single ad */}
+            {onRefresh && (
+              <Button
+                onClick={onRefresh}
+                disabled={isRefreshing}
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {isRefreshing ? '更新中...' : '重新抓取此廣告'}
+              </Button>
+            )}
+
             <Button
               onClick={handleRequestReview}
               disabled={isAppealing}

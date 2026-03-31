@@ -854,3 +854,68 @@ export function getAccountStatusLabel(status: number): string {
   };
   return statusMap[status] || `Unknown (${status})`;
 }
+
+/**
+ * Fetch a single ad's latest data from Meta API.
+ * Used for per-ad refresh without reloading all accounts.
+ * Returns the updated DisapprovedAd or null if the ad is no longer disapproved.
+ */
+export async function fetchSingleAd(
+  accessToken: string,
+  adId: string
+): Promise<DisapprovedAd | null> {
+  const fields = [
+    'id', 'name', 'effective_status', 'ad_review_feedback',
+    'issues_info', 'created_time', 'updated_time', 'campaign_id', 'adset_id',
+    'campaign{id,name}', 'adset{id,name}',
+    'creative{id,name,thumbnail_url,body,title,image_url,link_url,call_to_action_type}'
+  ].join(',');
+
+  const url = `${GRAPH_API_BASE}/${adId}?fields=${fields}&access_token=${accessToken}`;
+  const response = await fetch(url);
+  const data = await response.json();
+
+  if (data.error) {
+    throw new Error(`API Error: ${data.error.message} (Code: ${data.error.code})`);
+  }
+
+  if (!data.id) return null;
+
+  // Also fetch 30-day insights for this ad
+  let spend_30d = 0, impressions_30d = 0, clicks_30d = 0;
+  try {
+    const insightUrl = `${GRAPH_API_BASE}/${adId}/insights?fields=spend,impressions,clicks&date_preset=last_30d&access_token=${accessToken}`;
+    const insightResp = await fetch(insightUrl);
+    const insightData = await insightResp.json();
+    if (insightData.data && insightData.data.length > 0) {
+      spend_30d = parseFloat(insightData.data[0].spend || '0');
+      impressions_30d = parseInt(insightData.data[0].impressions || '0', 10);
+      clicks_30d = parseInt(insightData.data[0].clicks || '0', 10);
+    }
+  } catch {
+    // Non-critical — continue without insights
+  }
+
+  const ad: DisapprovedAd = {
+    id: data.id,
+    name: data.name || '',
+    status: data.status || '',
+    effective_status: data.effective_status || '',
+    ad_review_feedback: data.ad_review_feedback,
+    issues_info: data.issues_info?.data || data.issues_info,
+    created_time: data.created_time || '',
+    updated_time: data.updated_time,
+    campaign_id: data.campaign_id,
+    adset_id: data.adset_id,
+    campaign: data.campaign,
+    adset: data.adset,
+    creative: data.creative,
+    spend_30d,
+    impressions_30d,
+    clicks_30d,
+    parsed_review_feedback: parseReviewFeedback(data.ad_review_feedback),
+    policy_violations: extractPolicyViolations(data.ad_review_feedback, data.issues_info?.data || data.issues_info),
+  };
+
+  return ad;
+}
