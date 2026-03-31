@@ -36,3 +36,9 @@
 - [x] Add excluded/selected account functions to store.ts (localStorage persistence)
 - [x] Update DashboardDataContext to filter accounts based on exclusion/selection settings
 - [x] Excluded accounts shown with strikethrough and dimmed styling in Accounts page
+
+## Display Account Status (Active/Disabled)
+- [x] Store account_status from fetchAdAccounts in localStorage cache (already cached via setCachedAutoAccounts)
+- [x] Show status badge (Active/Disabled/etc.) next to each auto-fetched account
+- [x] Add filter pills (All/Active/Disabled/Other) to quickly find accounts by status
+- [x] Highlight Disabled accounts with distinct rose-colored badge styling

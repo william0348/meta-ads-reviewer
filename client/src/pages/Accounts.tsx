@@ -67,6 +67,7 @@ export default function Accounts() {
   const [excludedAccounts, setExcludedAccountsList] = useState<Set<string>>(new Set());
   const [dashboardSelectedAccounts, setDashboardSelectedAccounts] = useState<Set<string>>(new Set());
   const [showAccountFilter, setShowAccountFilter] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled' | 'other'>('all');
 
   useEffect(() => {
     setManualAccountsList(getManualAccounts());
@@ -328,6 +329,25 @@ export default function Accounts() {
   const activeSelectedCount = dashboardSelectedAccounts.size;
   const excludedCount = excludedAccounts.size;
 
+  // Account status stats
+  const statusStats = (() => {
+    const stats = { active: 0, disabled: 0, other: 0 };
+    for (const acc of autoAccounts) {
+      if (acc.account_status === 1) stats.active++;
+      else if (acc.account_status === 2) stats.disabled++;
+      else stats.other++;
+    }
+    return stats;
+  })();
+
+  // Filter auto accounts by status
+  const filteredAutoAccounts = autoAccounts.filter(acc => {
+    if (statusFilter === 'all') return true;
+    if (statusFilter === 'active') return acc.account_status === 1;
+    if (statusFilter === 'disabled') return acc.account_status === 2;
+    return acc.account_status !== 1 && acc.account_status !== 2; // 'other'
+  });
+
   return (
     <div className="max-w-4xl space-y-6">
       {/* Page header */}
@@ -565,16 +585,73 @@ export default function Accounts() {
 
         {autoAccounts.length > 0 && (
           <div className="space-y-2">
-            {/* Summary bar */}
-            <div className="flex items-center justify-between text-xs text-muted-foreground px-1 pb-1">
-              <span>共 {autoAccounts.length} 個帳號{excludedCount > 0 && <span className="text-amber-500 ml-1">（{excludedCount} 個已排除）</span>}</span>
+            {/* Status summary bar */}
+            <div className="flex flex-wrap items-center gap-2 px-1 pb-2">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('all')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                  statusFilter === 'all'
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted'
+                }`}
+              >
+                全部
+                <span className="tabular-nums">{autoAccounts.length}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('active')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                  statusFilter === 'active'
+                    ? 'bg-emerald-500 text-white border-emerald-500'
+                    : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 hover:bg-emerald-500/20'
+                }`}
+              >
+                Active
+                <span className="tabular-nums">{statusStats.active}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('disabled')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                  statusFilter === 'disabled'
+                    ? 'bg-rose-500 text-white border-rose-500'
+                    : 'bg-rose-500/10 text-rose-600 border-rose-500/20 hover:bg-rose-500/20'
+                }`}
+              >
+                Disabled
+                <span className="tabular-nums">{statusStats.disabled}</span>
+              </button>
+              {statusStats.other > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('other')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                    statusFilter === 'other'
+                      ? 'bg-amber-500 text-white border-amber-500'
+                      : 'bg-amber-500/10 text-amber-600 border-amber-500/20 hover:bg-amber-500/20'
+                  }`}
+                >
+                  Other
+                  <span className="tabular-nums">{statusStats.other}</span>
+                </button>
+              )}
+              <span className="flex-1" />
               {excludedCount > 0 && (
                 <button type="button" className="text-xs text-primary hover:underline" onClick={handleClearAllExclusions}>
-                  清除所有排除
+                  清除所有排除（{excludedCount}）
                 </button>
               )}
             </div>
-            {autoAccounts.map((account) => {
+            {filteredAutoAccounts.length === 0 && (
+              <div className="text-center py-6">
+                <p className="text-sm text-muted-foreground">
+                  {statusFilter === 'disabled' ? '沒有 Disabled 狀態的帳號' : `沒有符合「${statusFilter}」篩選條件的帳號`}
+                </p>
+              </div>
+            )}
+            {filteredAutoAccounts.map((account) => {
               const bm = bmCache[account.account_id];
               const appealUrl = getAppealUrl(account.account_id);
               const excluded = isAccountExcluded(account.account_id);
