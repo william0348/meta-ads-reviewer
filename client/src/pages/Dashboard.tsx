@@ -14,7 +14,7 @@
  * - Batch select & appeal (re-review) via Graph API
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   AlertTriangle, Search, RefreshCw, ChevronDown, ChevronUp,
   XCircle, Loader2, ImageOff, Filter, Download, ArrowUpDown,
@@ -32,7 +32,7 @@ import { Link } from "wouter";
 import {
   parseReviewFeedback,
   filterAdsByDateRange, buildAppealUrl,
-  batchRequestAdReview,
+  batchRequestAdReview, fetchAppNames,
   type DisapprovedAd, type BatchAppealResult,
 } from "@/lib/metaApi";
 import {
@@ -153,6 +153,17 @@ export default function Dashboard() {
     }
     return { appIds: Array.from(appIds).sort(), noAppCount };
   }, [ads]);
+
+  // Fetch App names for all unique App IDs
+  const [appNames, setAppNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (uniqueAppIds.appIds.length === 0 || !accessToken) return;
+    let cancelled = false;
+    fetchAppNames(accessToken, uniqueAppIds.appIds).then((names) => {
+      if (!cancelled) setAppNames(names);
+    });
+    return () => { cancelled = true; };
+  }, [uniqueAppIds.appIds.join(','), accessToken]);
 
   // Get account IDs for group filter
   const groupFilterAccountIds = useMemo(() => {
@@ -576,7 +587,7 @@ export default function Dashboard() {
 
             {uniqueAppIds.appIds.length > 0 && (
               <Select value={appFilter} onValueChange={setAppFilter}>
-                <SelectTrigger className="w-full sm:w-52">
+                <SelectTrigger className="w-full sm:w-64">
                   <Smartphone className="w-3.5 h-3.5 mr-1.5 shrink-0" />
                   <SelectValue placeholder="所有 App" />
                 </SelectTrigger>
@@ -584,9 +595,11 @@ export default function Dashboard() {
                   <SelectItem value="all">所有 App ({ads.length})</SelectItem>
                   {uniqueAppIds.appIds.map((appId) => {
                     const count = ads.filter((a) => a.promoted_object_app_id === appId).length;
+                    const name = appNames[appId];
+                    const displayName = name && name !== appId ? `${name} (${appId})` : `App ${appId}`;
                     return (
                       <SelectItem key={appId} value={appId}>
-                        App {appId} ({count})
+                        {displayName} ({count})
                       </SelectItem>
                     );
                   })}
@@ -841,6 +854,7 @@ export default function Dashboard() {
               onViewDetail={() => openAdDetail(ad)}
               bmCache={bmCache}
               accountNames={accountNames}
+              appNames={appNames}
               selected={selectedAdIds.has(ad.id)}
               onToggleSelect={() => toggleAdSelection(ad.id)}
               onRefresh={() => refreshSingleAd(ad.id)}
@@ -866,6 +880,7 @@ export default function Dashboard() {
           if (updated) setSelectedAd(updated);
         } : undefined}
         isRefreshing={!!selectedAd && refreshingAdId === selectedAd.id}
+        appNames={appNames}
       />
 
       {/* Batch Appeal Confirmation Dialog */}
@@ -931,7 +946,7 @@ function StatsCard({
 
 /* ─── Ad Card ─── */
 function AdCard({
-  ad, index, expanded, onToggle, onViewDetail, bmCache, accountNames,
+  ad, index, expanded, onToggle, onViewDetail, bmCache, accountNames, appNames,
   selected, onToggleSelect, onRefresh, isRefreshing,
 }: {
   ad: DisapprovedAd;
@@ -941,6 +956,7 @@ function AdCard({
   onViewDetail: () => void;
   bmCache: Record<string, { bmId: string; bmName: string }>;
   accountNames: Record<string, string>;
+  appNames: Record<string, string>;
   selected: boolean;
   onToggleSelect: () => void;
   onRefresh: () => void;
@@ -1030,7 +1046,9 @@ function AdCard({
             {ad.promoted_object_app_id && (
               <span className="font-mono text-blue-600 dark:text-blue-400">
                 <Smartphone className="w-3 h-3 inline mr-0.5" />
-                App: {ad.promoted_object_app_id}
+                {appNames[ad.promoted_object_app_id] && appNames[ad.promoted_object_app_id] !== ad.promoted_object_app_id
+                  ? `${appNames[ad.promoted_object_app_id]} (${ad.promoted_object_app_id})`
+                  : `App: ${ad.promoted_object_app_id}`}
               </span>
             )}
           </div>

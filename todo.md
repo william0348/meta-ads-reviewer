@@ -79,3 +79,11 @@
 - [x] Add promoted_object_app_id to DisapprovedAd type
 - [x] Add App ID filter dropdown to Dashboard with Smartphone icon
 - [x] Display App ID on ad cards (blue text with icon) and AdDetailDialog (CopyableId)
+
+## App Name Resolution
+- [x] Add fetchAppNames function in metaApi.ts — batch lookup via /?ids={...}&fields=id,name
+- [x] In-memory cache to avoid repeated API calls, batch size 50
+- [x] Display App name in Dashboard filter dropdown (e.g. "MyGame (123456)")
+- [x] Display App name on ad cards (blue text with Smartphone icon)
+- [x] Display App name in AdDetailDialog (CopyableId label shows App name)
+- [x] Pass appNames prop through AdCard and AdDetailDialog components

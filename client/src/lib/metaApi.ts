@@ -924,3 +924,56 @@ export async function fetchSingleAd(
 
   return ad;
 }
+
+
+/**
+ * Fetch App names for a list of App IDs from Graph API.
+ * Uses /?ids={id1},{id2}&fields=id,name for batch lookup.
+ * Returns a map of appId -> appName.
+ * Caches results in memory to avoid repeated calls.
+ */
+const appNameCache: Record<string, string> = {};
+
+export async function fetchAppNames(
+  accessToken: string,
+  appIds: string[]
+): Promise<Record<string, string>> {
+  // Filter out already cached IDs
+  const uncachedIds = appIds.filter((id) => !(id in appNameCache));
+
+  if (uncachedIds.length > 0) {
+    // Batch fetch in groups of 50 (API limit)
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < uncachedIds.length; i += BATCH_SIZE) {
+      const batch = uncachedIds.slice(i, i + BATCH_SIZE);
+      try {
+        const url = `${GRAPH_API_BASE}/?ids=${batch.join(',')}&fields=id,name&access_token=${accessToken}`;
+        const resp = await fetch(url);
+        if (resp.ok) {
+          const data = await resp.json();
+          // data is { "appId1": { id, name }, "appId2": { id, name }, ... }
+          for (const [id, info] of Object.entries(data)) {
+            const appInfo = info as { id: string; name?: string };
+            appNameCache[id] = appInfo.name || id;
+          }
+        }
+      } catch {
+        // Non-critical — continue with IDs as fallback
+      }
+    }
+
+    // Mark any still-uncached IDs so we don't retry them
+    for (const id of uncachedIds) {
+      if (!(id in appNameCache)) {
+        appNameCache[id] = id; // fallback to ID itself
+      }
+    }
+  }
+
+  // Build result from cache
+  const result: Record<string, string> = {};
+  for (const id of appIds) {
+    result[id] = appNameCache[id] || id;
+  }
+  return result;
+}

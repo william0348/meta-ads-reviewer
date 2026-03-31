@@ -34,9 +34,10 @@ export interface AdDetailDialogProps {
   onAdUpdated?: () => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  appNames?: Record<string, string>;
 }
 
-export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, onRefresh, isRefreshing }: AdDetailDialogProps) {
+export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, onRefresh, isRefreshing, appNames }: AdDetailDialogProps) {
   const [isAppealing, setIsAppealing] = useState(false);
 
   if (!ad) return null;
@@ -90,7 +91,14 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, on
             {ad.account_id && <CopyableId label="帳號" value={ad.account_id.startsWith('act_') ? ad.account_id : `act_${ad.account_id}`} />}
             {ad.campaign_id && <CopyableId label="Campaign ID" value={ad.campaign_id} />}
             {ad.adset_id && <CopyableId label="Ad Set ID" value={ad.adset_id} />}
-            {ad.promoted_object_app_id && <CopyableId label="App ID" value={ad.promoted_object_app_id} />}
+            {ad.promoted_object_app_id && (
+              <CopyableId
+                label={appNames?.[ad.promoted_object_app_id] && appNames[ad.promoted_object_app_id] !== ad.promoted_object_app_id
+                  ? `App: ${appNames[ad.promoted_object_app_id]}`
+                  : "App ID"}
+                value={ad.promoted_object_app_id}
+              />
+            )}
           </div>
 
           {/* ── Campaign / AdSet Names ── */}
