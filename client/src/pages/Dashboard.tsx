@@ -232,7 +232,7 @@ export default function Dashboard() {
     }
 
     return result;
-  }, [ads, searchQuery, groupFilterAccountIds, accountFilter, sortMode, dateRange, accountNames]);
+  }, [ads, statusTab, searchQuery, groupFilterAccountIds, accountFilter, sortMode, dateRange, accountNames]);
 
   // Export to CSV
   const exportCSV = () => {

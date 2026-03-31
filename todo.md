@@ -66,3 +66,6 @@
 - [x] Remove exclusion/selection UI from Accounts.tsx (eye icons, Dashboard 載入範圍 section)
 - [x] Remove exclusion/selection filtering from DashboardDataContext
 - [x] Ensure all accounts load by default
+
+## Bug Fix: Status Tab Not Filtering Ads
+- [x] Fix status tab switching to actually filter the ad list below (missing statusTab in useMemo deps)
