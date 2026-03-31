@@ -69,3 +69,13 @@
 
 ## Bug Fix: Status Tab Not Filtering Ads
 - [x] Fix status tab switching to actually filter the ad list below (missing statusTab in useMemo deps)
+
+## Bug Fix: Permissions Error on Single Ad Refresh
+- [ ] Investigate and fix Permissions error when refreshing individual ads
+
+## App ID Filter on Dashboard
+- [x] Research how to get App ID from Meta API — use adset.promoted_object.application_id
+- [x] Update metaApi.ts to fetch promoted_object from adset in all tiers + fetchSingleAd
+- [x] Add promoted_object_app_id to DisapprovedAd type
+- [x] Add App ID filter dropdown to Dashboard with Smartphone icon
+- [x] Display App ID on ad cards (blue text with icon) and AdDetailDialog (CopyableId)

@@ -44,7 +44,8 @@ export interface DisapprovedAd {
   campaign_id?: string;
   adset_id?: string;
   campaign?: { id: string; name: string };
-  adset?: { id: string; name: string };
+  adset?: { id: string; name: string; promoted_object?: { application_id?: string } };
+  promoted_object_app_id?: string;  // from adset.promoted_object.application_id
   creative?: {
     id: string;
     name?: string;
@@ -287,7 +288,7 @@ export async function fetchDisapprovedAds(
       fields: [
         'id', 'name', 'effective_status', 'ad_review_feedback',
         'issues_info', 'created_time', 'updated_time', 'campaign_id', 'adset_id',
-        'campaign{id,name}', 'adset{id,name}',
+        'campaign{id,name}', 'adset{id,name,promoted_object}',
         'creative{id,name,thumbnail_url,body,title,image_url,link_url,call_to_action_type}'
       ].join(','),
     },
@@ -297,7 +298,7 @@ export async function fetchDisapprovedAds(
       fields: [
         'id', 'name', 'effective_status', 'ad_review_feedback',
         'created_time', 'updated_time', 'campaign_id', 'adset_id',
-        'campaign{id,name}', 'adset{id,name}',
+        'campaign{id,name}', 'adset{id,name,promoted_object}',
         'creative{id,name,thumbnail_url,title}'
       ].join(','),
     },
@@ -306,7 +307,7 @@ export async function fetchDisapprovedAds(
       limit: 5,
       fields: [
         'id', 'name', 'effective_status', 'ad_review_feedback',
-        'created_time', 'updated_time', 'creative{id,thumbnail_url}'
+        'created_time', 'updated_time', 'adset{id,promoted_object}', 'creative{id,thumbnail_url}'
       ].join(','),
     },
     {
@@ -389,11 +390,12 @@ export async function fetchDisapprovedAds(
     // Reset retry count on success
     retryCount = 0;
 
-    // Parse review feedback and extract policy violations for each ad
+    // Parse review feedback, extract policy violations, and extract app ID for each ad
     const parsedAds = data.data.map(ad => ({
       ...ad,
       parsed_review_feedback: parseReviewFeedback(ad.ad_review_feedback),
       policy_violations: extractPolicyViolations(ad.ad_review_feedback, ad.issues_info as AdIssueInfo[] | undefined),
+      promoted_object_app_id: (ad.adset as any)?.promoted_object?.application_id || ad.promoted_object_app_id || undefined,
     }));
 
     allAds.push(...parsedAds);
@@ -867,7 +869,7 @@ export async function fetchSingleAd(
   const fields = [
     'id', 'name', 'effective_status', 'ad_review_feedback',
     'issues_info', 'created_time', 'updated_time', 'campaign_id', 'adset_id',
-    'campaign{id,name}', 'adset{id,name}',
+    'campaign{id,name}', 'adset{id,name,promoted_object}',
     'creative{id,name,thumbnail_url,body,title,image_url,link_url,call_to_action_type}'
   ].join(',');
 
@@ -880,6 +882,9 @@ export async function fetchSingleAd(
   }
 
   if (!data.id) return null;
+
+  // Extract promoted_object_app_id from adset
+  data.promoted_object_app_id = data.adset?.promoted_object?.application_id || undefined;
 
   // Also fetch 30-day insights for this ad
   let spend_30d = 0, impressions_30d = 0, clicks_30d = 0;

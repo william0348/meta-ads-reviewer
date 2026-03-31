@@ -90,6 +90,7 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, on
             {ad.account_id && <CopyableId label="帳號" value={ad.account_id.startsWith('act_') ? ad.account_id : `act_${ad.account_id}`} />}
             {ad.campaign_id && <CopyableId label="Campaign ID" value={ad.campaign_id} />}
             {ad.adset_id && <CopyableId label="Ad Set ID" value={ad.adset_id} />}
+            {ad.promoted_object_app_id && <CopyableId label="App ID" value={ad.promoted_object_app_id} />}
           </div>
 
           {/* ── Campaign / AdSet Names ── */}

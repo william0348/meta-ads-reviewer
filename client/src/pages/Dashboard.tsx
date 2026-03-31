@@ -19,7 +19,7 @@ import {
   AlertTriangle, Search, RefreshCw, ChevronDown, ChevronUp,
   XCircle, Loader2, ImageOff, Filter, Download, ArrowUpDown,
   Eye, Database, ExternalLink, Calendar, FolderOpen,
-  CheckSquare, Square, RotateCcw, Timer, TimerOff,
+  CheckSquare, Square, RotateCcw, Timer, TimerOff, Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,6 +118,7 @@ export default function Dashboard() {
   const [accountFilter, setAccountFilter] = useState("all");
   const [sortMode, setSortMode] = useState<SortMode>("spend_desc");
   const [dateRange, setDateRange] = useState<DateRange>("30d");
+  const [appFilter, setAppFilter] = useState("all");
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
   const [selectedAd, setSelectedAd] = useState<DisapprovedAd | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -137,6 +138,20 @@ export default function Dashboard() {
   // Unique account IDs from ads
   const uniqueAccountIds = useMemo(() => {
     return Array.from(new Set(ads.map((ad) => ad.account_id).filter(Boolean))) as string[];
+  }, [ads]);
+
+  // Unique App IDs from ads
+  const uniqueAppIds = useMemo(() => {
+    const appIds = new Set<string>();
+    let noAppCount = 0;
+    for (const ad of ads) {
+      if (ad.promoted_object_app_id) {
+        appIds.add(ad.promoted_object_app_id);
+      } else {
+        noAppCount++;
+      }
+    }
+    return { appIds: Array.from(appIds).sort(), noAppCount };
   }, [ads]);
 
   // Get account IDs for group filter
@@ -190,6 +205,15 @@ export default function Dashboard() {
       result = result.filter((ad) => ad.account_id === accountFilter);
     }
 
+    // App ID filter
+    if (appFilter !== "all") {
+      if (appFilter === "__none__") {
+        result = result.filter((ad) => !ad.promoted_object_app_id);
+      } else {
+        result = result.filter((ad) => ad.promoted_object_app_id === appFilter);
+      }
+    }
+
     // Search filter
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -232,7 +256,7 @@ export default function Dashboard() {
     }
 
     return result;
-  }, [ads, statusTab, searchQuery, groupFilterAccountIds, accountFilter, sortMode, dateRange, accountNames]);
+  }, [ads, statusTab, searchQuery, groupFilterAccountIds, accountFilter, appFilter, sortMode, dateRange, accountNames]);
 
   // Export to CSV
   const exportCSV = () => {
@@ -546,6 +570,29 @@ export default function Dashboard() {
                         </SelectItem>
                       );
                     })}
+                </SelectContent>
+              </Select>
+            )}
+
+            {uniqueAppIds.appIds.length > 0 && (
+              <Select value={appFilter} onValueChange={setAppFilter}>
+                <SelectTrigger className="w-full sm:w-52">
+                  <Smartphone className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                  <SelectValue placeholder="所有 App" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有 App ({ads.length})</SelectItem>
+                  {uniqueAppIds.appIds.map((appId) => {
+                    const count = ads.filter((a) => a.promoted_object_app_id === appId).length;
+                    return (
+                      <SelectItem key={appId} value={appId}>
+                        App {appId} ({count})
+                      </SelectItem>
+                    );
+                  })}
+                  {uniqueAppIds.noAppCount > 0 && (
+                    <SelectItem value="__none__">無 App ID ({uniqueAppIds.noAppCount})</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             )}
@@ -979,6 +1026,12 @@ function AdCard({
             )}
             {ad.spend_30d !== undefined && ad.spend_30d > 0 && (
               <span className="text-amber-600 font-medium">30d: ${ad.spend_30d.toFixed(2)}</span>
+            )}
+            {ad.promoted_object_app_id && (
+              <span className="font-mono text-blue-600 dark:text-blue-400">
+                <Smartphone className="w-3 h-3 inline mr-0.5" />
+                App: {ad.promoted_object_app_id}
+              </span>
             )}
           </div>
           {/* Show first feedback reason in collapsed view */}
