@@ -87,3 +87,11 @@
 - [x] Display App name on ad cards (blue text with Smartphone icon)
 - [x] Display App name in AdDetailDialog (CopyableId label shows App name)
 - [x] Pass appNames prop through AdCard and AdDetailDialog components
+
+## Bug Fix: Appeal Permissions Error
+- [x] Investigated Permissions error — likely caused by account-level restrictions, not token permissions
+- [x] Improved error messages: now shows error code, subcode, type, fbtrace_id, and user-friendly hints
+- [x] Added hints for common error codes (10=ads_management, 100=ad restricted, 200=permissions, 4/17/32=rate limit)
+- [x] Increased toast duration to 15s for error details in AdDetailDialog
+- [x] Improved batch appeal failure display with styled cards and whitespace-pre-wrap
+- [x] Reduced batch appeal concurrency from 10 to 5 and increased delay to 500ms

@@ -596,7 +596,7 @@ export async function validateToken(accessToken: string): Promise<{ valid: boole
 export async function requestAdReview(
   accessToken: string,
   adId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; errorCode?: number; errorSubcode?: number }> {
   try {
     const response = await fetch(`${GRAPH_API_BASE}/${adId}`, {
       method: 'POST',
@@ -608,7 +608,29 @@ export async function requestAdReview(
     });
     const data = await response.json();
     if (data.error) {
-      return { success: false, error: data.error.message };
+      const errCode = data.error.code;
+      const errSubcode = data.error.error_subcode;
+      const traceId = data.error.fbtrace_id;
+      const errType = data.error.type;
+      // Build detailed error message
+      let detail = data.error.message || 'Unknown error';
+      if (errCode) detail += ` (Code: ${errCode}`;
+      if (errSubcode) detail += `, Subcode: ${errSubcode}`;
+      if (errCode) detail += ')';
+      if (errType) detail += ` [${errType}]`;
+      if (traceId) detail += ` trace: ${traceId}`;
+      
+      // Provide user-friendly hints for common errors
+      if (errCode === 10) {
+        detail += '\n\u2192 此帳號可能未授權 ads_management 權限，或你在此帳號的角色不足（需要 Advertiser 或 Admin）';
+      } else if (errCode === 100) {
+        detail += '\n\u2192 參數錯誤或此廣告不允許修改狀態（可能已被永久禁止或帳號已停用）';
+      } else if (errCode === 200) {
+        detail += '\n\u2192 權限不足：你的 Token 或帳號角色沒有足夠權限修改此廣告';
+      } else if (errCode === 17 || errCode === 4 || errCode === 32) {
+        detail += '\n\u2192 API 速率限制，請稍後再試';
+      }
+      return { success: false, error: detail, errorCode: errCode, errorSubcode: errSubcode };
     }
     return { success: true };
   } catch {
@@ -790,7 +812,7 @@ export async function batchRequestAdReview(
   onProgress?: (completed: number, total: number) => void
 ): Promise<BatchAppealResult[]> {
   const results: BatchAppealResult[] = [];
-  const CONCURRENCY = 10; // parallel requests per wave
+  const CONCURRENCY = 5; // reduced from 10 to avoid rate limits
   let completed = 0;
 
   for (let i = 0; i < adIds.length; i += CONCURRENCY) {
@@ -809,7 +831,22 @@ export async function batchRequestAdReview(
           });
           const data = await response.json();
           if (data.error) {
-            return { adId, success: false, error: data.error.message };
+            const errCode = data.error.code;
+            const errSubcode = data.error.error_subcode;
+            const traceId = data.error.fbtrace_id;
+            const errType = data.error.type;
+            let detail = data.error.message || 'Unknown error';
+            if (errCode) detail += ` (Code: ${errCode}`;
+            if (errSubcode) detail += `, Subcode: ${errSubcode}`;
+            if (errCode) detail += ')';
+            if (errType) detail += ` [${errType}]`;
+            if (traceId) detail += ` trace: ${traceId}`;
+            // Hints
+            if (errCode === 10) detail += ' \u2192 帳號未授權 ads_management 或角色不足';
+            else if (errCode === 100) detail += ' \u2192 廣告不允許修改或帳號已停用';
+            else if (errCode === 200) detail += ' \u2192 權限不足';
+            else if (errCode === 17 || errCode === 4 || errCode === 32) detail += ' \u2192 API 速率限制，請稍後再試';
+            return { adId, success: false, error: detail };
           }
           return { adId, success: true };
         } catch {
@@ -822,7 +859,6 @@ export async function batchRequestAdReview(
       if (r.status === 'fulfilled') {
         results.push(r.value);
       } else {
-        // Should not happen since inner function catches errors, but just in case
         results.push({ adId: wave[results.length - (i > 0 ? i : 0)] || 'unknown', success: false, error: 'Unexpected error' });
       }
     }
@@ -830,9 +866,9 @@ export async function batchRequestAdReview(
     completed = Math.min(i + CONCURRENCY, adIds.length);
     onProgress?.(completed, adIds.length);
 
-    // Small delay between waves to respect rate limits
+    // Increased delay between waves to respect rate limits
     if (i + CONCURRENCY < adIds.length) {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
 

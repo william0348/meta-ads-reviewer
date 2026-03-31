@@ -55,10 +55,13 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, on
     try {
       const result = await requestAdReview(token, ad.id);
       if (result.success) {
-        toast.success("已成功提交重新審核申請");
+        toast.success("已成功提交重新審核申請，廣告將進入審查中狀態");
         onAdUpdated?.();
       } else {
-        toast.error(`申訴失敗: ${result.error}`);
+        toast.error(`申訴失敗: ${result.error}`, {
+          duration: 15000, // Show for 15s so user can read the details
+          description: `Ad ID: ${ad.id}`,
+        });
       }
     } catch {
       toast.error("申訴過程發生錯誤");

@@ -829,12 +829,13 @@ export default function Dashboard() {
             </div>
           </div>
           {appealResults.filter((r) => !r.success).length > 0 && (
-            <div className="space-y-1 max-h-32 overflow-y-auto">
+            <div className="space-y-1.5 max-h-60 overflow-y-auto">
               <p className="text-xs text-muted-foreground font-medium">失敗詳情：</p>
               {appealResults.filter((r) => !r.success).map((r) => (
-                <p key={r.adId} className="text-xs text-muted-foreground font-mono">
-                  {r.adId}: {r.error}
-                </p>
+                <div key={r.adId} className="text-xs p-2 rounded bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800">
+                  <p className="font-mono font-medium text-rose-700 dark:text-rose-400">Ad: {r.adId}</p>
+                  <p className="text-rose-600 dark:text-rose-300 mt-0.5 whitespace-pre-wrap">{r.error}</p>
+                </div>
               ))}
             </div>
           )}
