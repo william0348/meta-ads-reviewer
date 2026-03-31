@@ -18,6 +18,7 @@ import {
   getCachedAds, setCachedAds, clearCachedAds, getCacheAge,
   getAccountGroups, getBmIdCache, setBmIdForAccount,
   getAccountNamesCache, setAccountNames,
+  getExcludedAccounts, getSelectedAccounts,
 } from "@/lib/store";
 import { toast } from "sonner";
 
@@ -163,6 +164,41 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
         fetchingRef.current = false;
         return;
       }
+
+      // Apply account selection/exclusion filters
+      const selectedAccounts = getSelectedAccounts();
+      const excludedAccounts = getExcludedAccounts();
+
+      let filteredAccountIds = accountIds;
+
+      // If specific accounts are selected, only use those
+      if (selectedAccounts.length > 0) {
+        const selectedSet = new Set(selectedAccounts.map(id => id.replace(/^act_/, '')));
+        filteredAccountIds = accountIds.filter(id => {
+          const cleanId = id.replace(/^act_/, '');
+          return selectedSet.has(cleanId);
+        });
+      }
+
+      // Remove excluded accounts
+      if (excludedAccounts.length > 0) {
+        const excludedSet = new Set(excludedAccounts);
+        filteredAccountIds = filteredAccountIds.filter(id => {
+          const cleanId = id.replace(/^act_/, '');
+          return !excludedSet.has(cleanId);
+        });
+      }
+
+      if (filteredAccountIds.length === 0) {
+        toast.error("所有帳號都被排除了。請在帳號管理頁面調整選擇。");
+        setLoading(false);
+        fetchingRef.current = false;
+        return;
+      }
+
+      // Replace accountIds with filtered list
+      accountIds.length = 0;
+      accountIds.push(...filteredAccountIds);
 
       const totalAccounts = accountIds.length;
       const batchSize = 20;

@@ -314,15 +314,25 @@ export async function fetchDisapprovedAds(
       limit: 3,
       fields: 'id,name,effective_status,ad_review_feedback,created_time,updated_time',
     },
+    {
+      label: 'ultra-bare',
+      limit: 1,
+      fields: 'id,name,effective_status,created_time,updated_time',
+    },
   ];
 
   let tierIndex = 0;
+  let retryCount = 0;
+  const MAX_RETRIES_PER_TIER = 2;
 
   function buildUrl(tier: typeof tiers[0], cursor?: string): string {
     let u = `${GRAPH_API_BASE}/${formattedId}/ads?effective_status=["DISAPPROVED"]&fields=${tier.fields}&limit=${tier.limit}&access_token=${accessToken}`;
     if (cursor) u += `&after=${cursor}`;
     return u;
   }
+
+  // Delay helper with exponential backoff
+  const tierDelay = (tier: number) => Math.min(500 * Math.pow(2, tier), 5000);
 
   let url = buildUrl(tiers[tierIndex]);
 
@@ -337,18 +347,47 @@ export async function fetchDisapprovedAds(
         throw new Error(`[${formattedId}] 權限不足：帳號擁有者未授權 ads_read 權限`);
       }
 
-      // Code 1 = Data too large — try next tier
-      if (data.error.code === 1 && tierIndex < tiers.length - 1) {
-        tierIndex++;
-        const nextTier = tiers[tierIndex];
-        console.warn(`[${formattedId}] Data too large, falling back to ${nextTier.label} tier (limit=${nextTier.limit})`);
-        url = buildUrl(nextTier);
-        continue;
+      // Code 1 = Data too large or rate limit — try retry first, then next tier
+      if (data.error.code === 1) {
+        // Retry same tier with delay before falling back
+        if (retryCount < MAX_RETRIES_PER_TIER) {
+          retryCount++;
+          const delay = tierDelay(tierIndex) * retryCount;
+          console.warn(`[${formattedId}] Code 1 error, retry ${retryCount}/${MAX_RETRIES_PER_TIER} after ${delay}ms (tier: ${tiers[tierIndex].label})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // Move to next tier
+        if (tierIndex < tiers.length - 1) {
+          tierIndex++;
+          retryCount = 0;
+          const nextTier = tiers[tierIndex];
+          const delay = tierDelay(tierIndex);
+          console.warn(`[${formattedId}] Data too large, falling back to ${nextTier.label} tier (limit=${nextTier.limit}), waiting ${delay}ms`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          url = buildUrl(nextTier);
+          continue;
+        }
+      }
+
+      // Code 4 = Rate limiting — wait and retry
+      if (data.error.code === 4 || data.error.code === 17 || data.error.code === 32) {
+        if (retryCount < 3) {
+          retryCount++;
+          const delay = 3000 * retryCount;
+          console.warn(`[${formattedId}] Rate limited (Code ${data.error.code}), waiting ${delay}ms before retry`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
       }
 
       // All tiers exhausted or other error
       throw new Error(`API Error for ${formattedId}: ${data.error.message} (Code: ${data.error.code})`);
     }
+
+    // Reset retry count on success
+    retryCount = 0;
 
     // Parse review feedback and extract policy violations for each ad
     const parsedAds = data.data.map(ad => ({
@@ -412,7 +451,7 @@ export async function fetchAdInsights(
  * Processes ACCOUNTS_PER_BATCH accounts at a time to avoid API overload.
  * Calls onProgress after each batch so the UI can update incrementally.
  */
-const ACCOUNTS_PER_BATCH = 20;
+const ACCOUNTS_PER_BATCH = 5;
 
 export async function fetchAllDisapprovedAds(
   accessToken: string,
@@ -441,13 +480,21 @@ export async function fetchAllDisapprovedAds(
     const batchAds: DisapprovedAd[] = [];
     const batchErrors: { accountId: string; error: string }[] = [];
 
-    // Within each batch, fetch accounts in parallel (safe since batch is small)
-    const results = await Promise.allSettled(
-      batch.map(async (accountId) => {
+    // Fetch accounts sequentially with delay to avoid rate limiting
+    const results: PromiseSettledResult<{ accountId: string; ads: DisapprovedAd[] }>[] = [];
+    for (let i = 0; i < batch.length; i++) {
+      const accountId = batch[i];
+      try {
         const ads = await fetchDisapprovedAds(accessToken, accountId);
-        return { accountId, ads };
-      })
-    );
+        results.push({ status: 'fulfilled', value: { accountId, ads } });
+      } catch (err) {
+        results.push({ status: 'rejected', reason: err });
+      }
+      // Add 500ms delay between accounts to avoid rate limiting
+      if (i < batch.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
 
     // Resolve account names for this batch
     let accountNameMap: Record<string, string> = {};

@@ -17,6 +17,8 @@ const STORAGE_KEYS = {
   BM_ID_CACHE: 'meta_ads_reviewer_bm_ids',
   ACCOUNT_NAMES: 'meta_ads_reviewer_account_names',
   CACHED_AUTO_ACCOUNTS: 'meta_ads_reviewer_auto_accounts',
+  EXCLUDED_ACCOUNTS: 'meta_ads_reviewer_excluded_accounts',
+  SELECTED_ACCOUNTS: 'meta_ads_reviewer_selected_accounts',
 } as const;
 
 // ── Access Token ──
@@ -269,6 +271,47 @@ export function setCachedAutoAccounts(accounts: AdAccount[]): void {
     if (acc.name) names[id] = acc.name;
   }
   if (Object.keys(names).length > 0) setAccountNames(names);
+}
+
+// ── Excluded Accounts ──
+// Accounts that are excluded from Dashboard loading (auto-fetched but user doesn't want)
+export function getExcludedAccounts(): string[] {
+  const stored = localStorage.getItem(STORAGE_KEYS.EXCLUDED_ACCOUNTS);
+  if (!stored) return [];
+  try { return JSON.parse(stored); } catch { return []; }
+}
+
+export function setExcludedAccounts(accounts: string[]): void {
+  localStorage.setItem(STORAGE_KEYS.EXCLUDED_ACCOUNTS, JSON.stringify(accounts));
+}
+
+export function addExcludedAccount(accountId: string): string[] {
+  const excluded = getExcludedAccounts();
+  const cleaned = accountId.replace(/^act_/, '');
+  if (!excluded.includes(cleaned)) {
+    excluded.push(cleaned);
+    setExcludedAccounts(excluded);
+  }
+  return excluded;
+}
+
+export function removeExcludedAccount(accountId: string): string[] {
+  const cleaned = accountId.replace(/^act_/, '');
+  const excluded = getExcludedAccounts().filter(id => id !== cleaned);
+  setExcludedAccounts(excluded);
+  return excluded;
+}
+
+// ── Selected Accounts (for Dashboard filtering) ──
+// When set, only these accounts will be loaded in Dashboard. Empty = load all non-excluded.
+export function getSelectedAccounts(): string[] {
+  const stored = localStorage.getItem(STORAGE_KEYS.SELECTED_ACCOUNTS);
+  if (!stored) return [];
+  try { return JSON.parse(stored); } catch { return []; }
+}
+
+export function setSelectedAccounts(accounts: string[]): void {
+  localStorage.setItem(STORAGE_KEYS.SELECTED_ACCOUNTS, JSON.stringify(accounts));
 }
 
 // ── Clear All ──

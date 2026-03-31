@@ -24,3 +24,15 @@
 - [x] Add auto-refresh interval support (configurable timer)
 - [x] Update Dashboard to consume global context instead of local state
 - [x] Show background loading indicator in sidebar when data is being fetched
+
+## API Code 1 Fix & Account Selection
+- [x] Add ultra-bare tier (limit=1, minimal fields) for Code 1 retry
+- [x] Add per-account delay between API calls to avoid rate limiting (500ms inter-account, exponential backoff on errors)
+- [x] Add retry with exponential backoff before falling back to next tier (2 retries per tier)
+- [x] Add rate limit handling for Code 4/17/32 errors
+- [x] Reduce batch size from 10 to 5 accounts per batch for more conservative rate limiting
+- [x] Add account exclusion feature — eye icon on each auto-fetched account to exclude from Dashboard
+- [x] Add account selection in Dashboard — "Dashboard 載入範圍" section with checkboxes to select specific accounts
+- [x] Add excluded/selected account functions to store.ts (localStorage persistence)
+- [x] Update DashboardDataContext to filter accounts based on exclusion/selection settings
+- [x] Excluded accounts shown with strikethrough and dimmed styling in Accounts page
