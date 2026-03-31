@@ -9,7 +9,6 @@ import {
   Users, Plus, Trash2, RefreshCw, Loader2,
   Building2, Hash, Globe, FolderPlus,
   ChevronDown, ChevronRight, Edit2, Check, X, ExternalLink,
-  EyeOff, Eye, Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,8 +27,6 @@ import {
   deleteAccountGroup, addAccountToGroup, removeAccountFromGroup,
   getBmIdCache, setBmIdForAccount, getAppealUrl,
   getAccountNamesCache, setAccountNames, getCachedAutoAccounts, setCachedAutoAccounts,
-  getExcludedAccounts, setExcludedAccounts, addExcludedAccount, removeExcludedAccount,
-  getSelectedAccounts, setSelectedAccounts,
   type AccountGroup,
 } from "@/lib/store";
 import CopyableId from "@/components/CopyableId";
@@ -64,9 +61,6 @@ export default function Accounts() {
   const autoFetchEnabled = getAutoFetch();
 
   const [accountNames, setAccountNamesState] = useState<Record<string, string>>({});
-  const [excludedAccounts, setExcludedAccountsList] = useState<Set<string>>(new Set());
-  const [dashboardSelectedAccounts, setDashboardSelectedAccounts] = useState<Set<string>>(new Set());
-  const [showAccountFilter, setShowAccountFilter] = useState(false);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled' | 'other'>('all');
 
   useEffect(() => {
@@ -74,8 +68,6 @@ export default function Accounts() {
     setGroups(getAccountGroups());
     setBmCache(getBmIdCache());
     setAccountNamesState(getAccountNamesCache());
-    setExcludedAccountsList(new Set(getExcludedAccounts()));
-    setDashboardSelectedAccounts(new Set(getSelectedAccounts()));
     // Load cached auto accounts
     const cachedAuto = getCachedAutoAccounts();
     if (cachedAuto.length > 0) setAutoAccounts(cachedAuto);
@@ -269,65 +261,6 @@ export default function Accounts() {
       default: return "bg-amber-500/10 text-amber-600 border-amber-500/20";
     }
   };
-
-  // --- Account exclusion/selection handlers ---
-  const handleToggleExclude = (accountId: string) => {
-    const cleanId = accountId.replace(/^act_/, '');
-    if (excludedAccounts.has(cleanId)) {
-      removeExcludedAccount(cleanId);
-      setExcludedAccountsList(prev => { const next = new Set(prev); next.delete(cleanId); return next; });
-      toast.success(`已取消排除帳號 ${cleanId}`);
-    } else {
-      addExcludedAccount(cleanId);
-      setExcludedAccountsList(prev => { const next = new Set(prev); next.add(cleanId); return next; });
-      // Also remove from selected if it was selected
-      if (dashboardSelectedAccounts.has(cleanId)) {
-        const newSelected = new Set(dashboardSelectedAccounts);
-        newSelected.delete(cleanId);
-        setDashboardSelectedAccounts(newSelected);
-        setSelectedAccounts(Array.from(newSelected));
-      }
-      toast.success(`已排除帳號 ${cleanId}，Dashboard 將不再載入此帳號`);
-    }
-  };
-
-  const handleToggleDashboardSelect = (accountId: string) => {
-    const cleanId = accountId.replace(/^act_/, '');
-    const newSelected = new Set(dashboardSelectedAccounts);
-    if (newSelected.has(cleanId)) {
-      newSelected.delete(cleanId);
-    } else {
-      newSelected.add(cleanId);
-    }
-    setDashboardSelectedAccounts(newSelected);
-    setSelectedAccounts(Array.from(newSelected));
-  };
-
-  const handleSelectAllForDashboard = () => {
-    const allIds = allAvailableAccounts
-      .map(a => a.id)
-      .filter(id => !excludedAccounts.has(id));
-    setDashboardSelectedAccounts(new Set(allIds));
-    setSelectedAccounts(allIds);
-    toast.success(`已選取 ${allIds.length} 個帳號`);
-  };
-
-  const handleClearDashboardSelection = () => {
-    setDashboardSelectedAccounts(new Set());
-    setSelectedAccounts([]);
-    toast.success('已清除選取，Dashboard 將載入所有未排除的帳號');
-  };
-
-  const handleClearAllExclusions = () => {
-    setExcludedAccounts([]);
-    setExcludedAccountsList(new Set());
-    toast.success('已清除所有排除設定');
-  };
-
-  const isAccountExcluded = (accountId: string) => excludedAccounts.has(accountId.replace(/^act_/, ''));
-  const isAccountSelected = (accountId: string) => dashboardSelectedAccounts.has(accountId.replace(/^act_/, ''));
-  const activeSelectedCount = dashboardSelectedAccounts.size;
-  const excludedCount = excludedAccounts.size;
 
   // Account status stats
   const statusStats = (() => {
@@ -637,12 +570,6 @@ export default function Accounts() {
                   <span className="tabular-nums">{statusStats.other}</span>
                 </button>
               )}
-              <span className="flex-1" />
-              {excludedCount > 0 && (
-                <button type="button" className="text-xs text-primary hover:underline" onClick={handleClearAllExclusions}>
-                  清除所有排除（{excludedCount}）
-                </button>
-              )}
             </div>
             {filteredAutoAccounts.length === 0 && (
               <div className="text-center py-6">
@@ -654,23 +581,17 @@ export default function Accounts() {
             {filteredAutoAccounts.map((account) => {
               const bm = bmCache[account.account_id];
               const appealUrl = getAppealUrl(account.account_id);
-              const excluded = isAccountExcluded(account.account_id);
               return (
-                <div key={account.id} className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                  excluded ? 'bg-muted/10 opacity-50' : 'bg-muted/30 hover:bg-muted/50'
-                }`}>
-                  <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${
-                    excluded ? 'bg-muted/20' : 'bg-blue-500/10'
-                  }`}>
-                    {excluded ? <EyeOff className="w-4 h-4 text-muted-foreground" /> : <Building2 className="w-4 h-4 text-blue-500" />}
+                <div key={account.id} className="flex items-center gap-3 p-3 rounded-lg transition-colors bg-muted/30 hover:bg-muted/50">
+                  <div className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 bg-blue-500/10">
+                    <Building2 className="w-4 h-4 text-blue-500" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-medium truncate ${excluded ? 'line-through text-muted-foreground' : ''}`}>{account.name || "Unnamed Account"}</span>
+                      <span className="text-sm font-medium truncate">{account.name || "Unnamed Account"}</span>
                       <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${getStatusColor(account.account_status)}`}>
                         {getAccountStatusLabel(account.account_status)}
                       </Badge>
-                      {excluded && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-600 border-amber-500/20">已排除</Badge>}
                     </div>
                     <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-0.5">
                       <CopyableId value={account.id} label="" className="text-[11px]" />
@@ -683,13 +604,6 @@ export default function Accounts() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      size="icon" variant="ghost" className={`h-7 w-7 ${excluded ? 'text-emerald-500 hover:text-emerald-600' : 'text-muted-foreground hover:text-amber-500'}`}
-                      onClick={() => handleToggleExclude(account.account_id)}
-                      title={excluded ? '取消排除（恢復載入）' : '排除此帳號（Dashboard 不再載入）'}
-                    >
-                      {excluded ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                    </Button>
                     {appealUrl && (
                       <Button
                         size="icon" variant="ghost" className="h-7 w-7"
@@ -802,90 +716,6 @@ export default function Accounts() {
           提示：可以輸入帶有或不帶有 act_ 前綴的帳號 ID
         </p>
       </div>
-
-      {/* Dashboard Account Selection */}
-      {allAvailableAccounts.length > 0 && (
-        <div className="gradient-border p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                <Filter className="w-5 h-5 text-violet-500" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold" style={{ fontFamily: "var(--font-display)" }}>
-                  Dashboard 載入範圍
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  {activeSelectedCount > 0
-                    ? `已選取 ${activeSelectedCount} 個帳號，Dashboard 僅載入這些帳號`
-                    : '未選取特定帳號，Dashboard 將載入所有未排除的帳號'}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {activeSelectedCount > 0 && (
-                <Button variant="outline" size="sm" onClick={handleClearDashboardSelection} className="gap-1.5 text-xs">
-                  清除選取
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setShowAccountFilter(!showAccountFilter)} className="gap-1.5">
-                <Filter className="w-3.5 h-3.5" />
-                {showAccountFilter ? '收起' : '選取帳號'}
-              </Button>
-            </div>
-          </div>
-
-          {showAccountFilter && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>可選取特定帳號來載入，或留空載入全部</span>
-                <button type="button" className="text-xs text-primary hover:underline" onClick={handleSelectAllForDashboard}>
-                  全選
-                </button>
-              </div>
-              <div className="border border-border rounded-lg max-h-64 overflow-y-auto divide-y divide-border">
-                {allAvailableAccounts.map((acc) => {
-                  const excluded = isAccountExcluded(acc.id);
-                  const selected = isAccountSelected(acc.id);
-                  const bm = bmCache[acc.id];
-                  return (
-                    <label
-                      key={acc.id}
-                      className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors hover:bg-muted/50 ${
-                        excluded ? 'opacity-40 cursor-not-allowed' : selected ? 'bg-violet-500/5' : ''
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        disabled={excluded}
-                        onChange={() => !excluded && handleToggleDashboardSelect(acc.id)}
-                        className="w-4 h-4 rounded border-border text-violet-500 focus:ring-violet-500 accent-violet-500"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-mono">act_{acc.id}</span>
-                          {acc.name && <span className="text-xs text-muted-foreground truncate">({acc.name})</span>}
-                          {excluded && <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-600 border-amber-500/20">已排除</Badge>}
-                        </div>
-                        {bm && (
-                          <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                            BM: {bm.bmName || bm.bmId}
-                          </p>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                已選取 {activeSelectedCount} / {allAvailableAccounts.filter(a => !isAccountExcluded(a.id)).length} 個可用帳號
-                {activeSelectedCount === 0 && '（未選取 = 載入全部未排除的帳號）'}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Create Group Dialog */}
       <Dialog open={showGroupDialog} onOpenChange={(open) => {

@@ -60,3 +60,9 @@
 - [x] Show colored count badges on each tab
 - [x] Update ad card Badge to show effective_status (PENDING_REVIEW, ACTIVE, etc.) with dynamic colors
 - [x] Make status tabs work with existing filters (group, account, date, search)
+
+## Remove Account Exclusion/Selection Filter
+- [x] Remove excluded/selected account functions from store.ts
+- [x] Remove exclusion/selection UI from Accounts.tsx (eye icons, Dashboard 載入範圍 section)
+- [x] Remove exclusion/selection filtering from DashboardDataContext
+- [x] Ensure all accounts load by default
