@@ -95,3 +95,13 @@
 - [x] Increased toast duration to 15s for error details in AdDetailDialog
 - [x] Improved batch appeal failure display with styled cards and whitespace-pre-wrap
 - [x] Reduced batch appeal concurrency from 10 to 5 and increased delay to 500ms
+
+## Ad Account Appeals Page
+- [x] Research Meta API for ad account appeal/review request endpoint (POST /{bm_id}/ad_review_requests)
+- [x] Add requestAdAccountReview and fetchAllAccountAppIds functions in metaApi.ts
+- [x] Create AccountAppeals.tsx page with disabled accounts list, status cards, and appeal config
+- [x] Add App ID filter with names for disabled accounts (fetchAppNames integration)
+- [x] Add batch appeal functionality with BM ID and App ID inputs
+- [x] Show appeal results per account (success/fail/invalid with Case ID)
+- [x] Register route /account-appeals in App.tsx and add sidebar nav item with ShieldAlert icon
+- [x] Auto-detect BM ID from cache, CopyableId components, FB external appeal link

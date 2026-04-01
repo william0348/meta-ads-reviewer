@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Menu,
   Shield,
+  ShieldAlert,
   Sun,
   Moon,
   Cloud,
@@ -46,6 +47,12 @@ const navItems = [
     label: "帳號管理",
     icon: Users,
     description: "管理廣告帳號",
+  },
+  {
+    path: "/account-appeals",
+    label: "帳號申訴",
+    icon: ShieldAlert,
+    description: "停用帳號申訴管理",
   },
   {
     path: "/settings",

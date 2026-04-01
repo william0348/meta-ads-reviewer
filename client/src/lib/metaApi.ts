@@ -1013,3 +1013,122 @@ export async function fetchAppNames(
   }
   return result;
 }
+
+
+/**
+ * Appeal result for a single ad account
+ */
+export interface AccountAppealResult {
+  entity_id: string;
+  appeal_case_id?: string;
+  status: 'appeal_creation_success' | 'appeal_entity_invalid' | 'appeal_creation_failure';
+  reason: string;
+}
+
+/**
+ * Request review/appeal for disabled ad accounts via the Business Management API.
+ * POST <parent_bm_id>/ad_review_requests
+ * Requires: business_management permission, admin privileges
+ * Max 50 accounts per request.
+ */
+export async function requestAdAccountReview(
+  accessToken: string,
+  parentBmId: string,
+  adAccountIds: string[],
+  appId: string
+): Promise<{ success: boolean; results: AccountAppealResult[]; error?: string }> {
+  try {
+    // Clean account IDs — API expects numeric IDs without act_ prefix
+    const numericIds = adAccountIds.map((id) => id.replace(/^act_/, ''));
+
+    const response = await fetch(`${GRAPH_API_BASE}/${parentBmId}/ad_review_requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        ad_account_ids: JSON.stringify(numericIds),
+        app: appId,
+        access_token: accessToken,
+      }),
+    });
+    const data = await response.json();
+
+    if (data.error) {
+      const errCode = data.error.code;
+      const errSubcode = data.error.error_subcode;
+      const traceId = data.error.fbtrace_id;
+      const errType = data.error.type;
+      let detail = data.error.message || 'Unknown error';
+      if (errCode) detail += ` (Code: ${errCode}`;
+      if (errSubcode) detail += `, Subcode: ${errSubcode}`;
+      if (errCode) detail += ')';
+      if (errType) detail += ` [${errType}]`;
+      if (traceId) detail += ` trace: ${traceId}`;
+      return { success: false, results: [], error: detail };
+    }
+
+    // Parse response array
+    const results: AccountAppealResult[] = data.response || [];
+    const allSuccess = results.every((r: AccountAppealResult) => r.status === 'appeal_creation_success');
+    return { success: allSuccess, results };
+  } catch {
+    return { success: false, results: [], error: 'Network error' };
+  }
+}
+
+/**
+ * Fetch the App IDs associated with ad accounts.
+ * For each account, fetches the applications connected via the account's ads.
+ * We look at the account's promoted_object from recent campaigns.
+ */
+export async function fetchAccountAppIds(
+  accessToken: string,
+  accountId: string
+): Promise<string[]> {
+  const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+  try {
+    // Fetch recent campaigns with promoted_object to find app IDs
+    const url = `${GRAPH_API_BASE}/${formattedId}/campaigns?fields=promoted_object&limit=100&access_token=${accessToken}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.error || !data.data) return [];
+
+    const appIds = new Set<string>();
+    for (const campaign of data.data) {
+      if (campaign.promoted_object?.application_id) {
+        appIds.add(campaign.promoted_object.application_id);
+      }
+    }
+    return Array.from(appIds);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Batch fetch App IDs for multiple accounts.
+ * Returns a map of accountId -> appIds[]
+ */
+export async function fetchAllAccountAppIds(
+  accessToken: string,
+  accounts: AdAccount[],
+  onProgress?: (completed: number, total: number) => void
+): Promise<Record<string, string[]>> {
+  const result: Record<string, string[]> = {};
+  const BATCH_SIZE = 5;
+
+  for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
+    const batch = accounts.slice(i, i + BATCH_SIZE);
+    const promises = batch.map(async (acc) => {
+      const appIds = await fetchAccountAppIds(accessToken, acc.account_id);
+      result[acc.account_id] = appIds;
+    });
+    await Promise.allSettled(promises);
+    onProgress?.(Math.min(i + BATCH_SIZE, accounts.length), accounts.length);
+    // Small delay between batches
+    if (i + BATCH_SIZE < accounts.length) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+
+  return result;
+}
