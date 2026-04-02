@@ -1,10 +1,9 @@
 /**
  * Account Appeals Page
  * View disabled ad accounts, filter by App ID, and submit appeals.
- * Improvements:
- * - App ID & BM ID selection via dropdown (auto-populated from cache)
- * - Better batch appeal UX with progress and detailed error hints
- * - Always-visible App filter dropdown
+ * - App ID & BM ID selection via dropdown only (no manual input)
+ * - Batch appeal appears when 1+ accounts selected
+ * - Cleaner UX with inline batch appeal bar
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
@@ -131,7 +130,7 @@ export default function AccountAppeals() {
     const entries = Object.values(bmCache);
     setBmEntries(entries);
     // Auto-select first BM if available
-    if (entries.length > 0 && !appealBmId) {
+    if (entries.length > 0) {
       setAppealBmId(entries[0].bmId);
     }
   }, []);
@@ -220,6 +219,13 @@ export default function AccountAppeals() {
     return Array.from(ids).sort();
   }, [accountAppIds]);
 
+  // Auto-select first App ID when uniqueAppIds changes
+  useEffect(() => {
+    if (uniqueAppIds.length > 0 && !appealAppId) {
+      setAppealAppId(uniqueAppIds[0]);
+    }
+  }, [uniqueAppIds, appealAppId]);
+
   // Unique BM IDs from cache (for dropdown)
   const uniqueBmIds = useMemo(() => {
     const map = new Map<string, string>();
@@ -292,12 +298,12 @@ export default function AccountAppeals() {
       toast.error('請先設定 Access Token');
       return;
     }
-    if (!appealBmId.trim()) {
-      toast.error('請選擇或輸入 Business Manager ID');
+    if (!appealBmId) {
+      toast.error('請選擇 Business Manager ID');
       return;
     }
-    if (!appealAppId.trim()) {
-      toast.error('請選擇或輸入 App ID');
+    if (!appealAppId) {
+      toast.error('請選擇 App ID');
       return;
     }
     if (selectedAccounts.size === 0) {
@@ -316,19 +322,18 @@ export default function AccountAppeals() {
       for (let i = 0; i < accountIds.length; i += 50) {
         const batch = accountIds.slice(i, i + 50);
         const batchIndex = Math.floor(i / 50) + 1;
-        
+
         toast.info(`正在提交第 ${batchIndex}/${totalBatches} 批申訴 (${batch.length} 個帳號)...`);
-        
-        const result = await requestAdAccountReview(token, appealBmId.trim(), batch, appealAppId.trim());
-        
+
+        const result = await requestAdAccountReview(token, appealBmId, batch, appealAppId);
+
         if (result.error) {
           toast.error(`第 ${batchIndex} 批申訴失敗: ${result.error}`, { duration: 20000 });
-          // Don't break — show the error but continue displaying results
           break;
         }
         allResults.push(...result.results);
         setAppealProgress({ completed: batchIndex, total: totalBatches });
-        
+
         // Small delay between batches
         if (i + 50 < accountIds.length) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -490,15 +495,25 @@ export default function AccountAppeals() {
         )}
       </div>
 
-      {/* Appeal Configuration */}
-      {filteredAccounts.some((a) => a.account_status === 2) && (
-        <Card className="border-rose-200 dark:border-rose-900/50">
-          <CardContent className="p-4 space-y-4">
-            <h3 className="font-semibold flex items-center gap-2 text-rose-600">
-              <Send className="w-4 h-4" />
-              批次申訴設定
-            </h3>
-            
+      {/* Batch Appeal Bar — appears when 1+ accounts selected */}
+      {selectedAccounts.size > 0 && (
+        <Card className="border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold flex items-center gap-2 text-rose-600">
+                <Send className="w-4 h-4" />
+                批次申訴 — 已選 {selectedAccounts.size} 個帳號
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedAccounts(new Set())}
+                className="text-muted-foreground"
+              >
+                取消選擇
+              </Button>
+            </div>
+
             {/* Info box */}
             <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300">
               <Info className="w-4 h-4 shrink-0 mt-0.5" />
@@ -514,10 +529,13 @@ export default function AccountAppeals() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="flex flex-col sm:flex-row gap-3 items-end">
               {/* BM ID selector */}
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Business Manager ID</label>
+              <div className="flex-1 w-full">
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  <Building2 className="w-3 h-3 inline mr-1" />
+                  Business Manager ID（Parent BM）
+                </label>
                 {uniqueBmIds.length > 0 ? (
                   <Select value={appealBmId} onValueChange={setAppealBmId}>
                     <SelectTrigger>
@@ -535,11 +553,6 @@ export default function AccountAppeals() {
                           </div>
                         </SelectItem>
                       ))}
-                      <SelectItem value="__custom__">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          手動輸入...
-                        </div>
-                      </SelectItem>
                     </SelectContent>
                   </Select>
                 ) : (
@@ -550,20 +563,14 @@ export default function AccountAppeals() {
                     className="font-mono text-sm"
                   />
                 )}
-                {appealBmId === '__custom__' && (
-                  <Input
-                    placeholder="手動輸入 BM ID"
-                    value=""
-                    onChange={(e) => setAppealBmId(e.target.value)}
-                    className="font-mono text-sm mt-2"
-                    autoFocus
-                  />
-                )}
               </div>
 
-              {/* App ID selector */}
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">App ID（Partner App）</label>
+              {/* App ID selector — pure dropdown */}
+              <div className="flex-1 w-full">
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  <Smartphone className="w-3 h-3 inline mr-1" />
+                  App ID（Partner App）
+                </label>
                 {uniqueAppIds.length > 0 ? (
                   <Select value={appealAppId} onValueChange={setAppealAppId}>
                     <SelectTrigger>
@@ -573,54 +580,38 @@ export default function AccountAppeals() {
                       </div>
                     </SelectTrigger>
                     <SelectContent>
-                      {uniqueAppIds.map((appId) => (
-                        <SelectItem key={appId} value={appId}>
-                          <div className="flex items-center gap-2">
-                            <Smartphone className="w-3.5 h-3.5 text-blue-500" />
-                            {appNames[appId] ? `${appNames[appId]} (${appId})` : appId}
-                          </div>
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="__custom_app__">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          手動輸入...
-                        </div>
-                      </SelectItem>
+                      {uniqueAppIds.map((appId) => {
+                        const count = Object.values(accountAppIds).filter(ids => ids.includes(appId)).length;
+                        return (
+                          <SelectItem key={appId} value={appId}>
+                            <div className="flex items-center gap-2">
+                              <Smartphone className="w-3.5 h-3.5 text-blue-500" />
+                              {appNames[appId] ? `${appNames[appId]} (${appId}) — ${count} 帳號` : `${appId} — ${count} 帳號`}
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input
-                    placeholder="例如: 987654321098765"
-                    value={appealAppId}
-                    onChange={(e) => setAppealAppId(e.target.value)}
-                    className="font-mono text-sm"
-                  />
-                )}
-                {appealAppId === '__custom_app__' && (
-                  <Input
-                    placeholder="手動輸入 App ID"
-                    value=""
-                    onChange={(e) => setAppealAppId(e.target.value)}
-                    className="font-mono text-sm mt-2"
-                    autoFocus
-                  />
+                  <div className="text-xs text-muted-foreground p-2 border rounded-md bg-muted/50">
+                    請先點擊「取得 App 資訊」以載入 App 列表
+                  </div>
                 )}
               </div>
 
               {/* Submit button */}
-              <div className="flex items-end">
+              <div className="shrink-0">
                 <Button
                   onClick={() => setShowAppealConfirm(true)}
                   disabled={
                     appealing ||
                     selectedAccounts.size === 0 ||
                     !appealBmId ||
-                    appealBmId === '__custom__' ||
-                    !appealAppId ||
-                    appealAppId === '__custom_app__'
+                    !appealAppId
                   }
                   variant="destructive"
-                  className="w-full"
+                  size="default"
                 >
                   {appealing ? (
                     <>
@@ -630,7 +621,7 @@ export default function AccountAppeals() {
                   ) : (
                     <>
                       <Send className="w-4 h-4 mr-2" />
-                      批次申訴 ({selectedAccounts.size} 個帳號)
+                      提交申訴 ({selectedAccounts.size})
                     </>
                   )}
                 </Button>
@@ -646,10 +637,11 @@ export default function AccountAppeals() {
           <AlertDialogHeader>
             <AlertDialogTitle>確認批次申訴</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
-              <p>即將為 <strong>{selectedAccounts.size}</strong> 個停用帳號提交申訴。</p>
+              <p>即將為 <strong>{selectedAccounts.size}</strong> 個帳號提交申訴。</p>
               <div className="text-xs bg-muted p-2 rounded-lg space-y-1 font-mono">
-                <p>BM ID: {appealBmId}</p>
+                <p>BM ID: {appealBmId} {uniqueBmIds.find(b => b.id === appealBmId)?.name ? `(${uniqueBmIds.find(b => b.id === appealBmId)?.name})` : ''}</p>
                 <p>App ID: {appealAppId} {appNames[appealAppId] ? `(${appNames[appealAppId]})` : ''}</p>
+                <p>帳號數: {selectedAccounts.size}{selectedAccounts.size > 50 ? ` (將分 ${Math.ceil(selectedAccounts.size / 50)} 批提交)` : ''}</p>
               </div>
               <p className="text-xs text-amber-600">
                 注意：申訴提交後無法撤回。請確認 BM ID 和 App ID 正確。

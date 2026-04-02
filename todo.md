@@ -121,3 +121,8 @@
 - [x] Improve batch appeal UX — BM ID dropdown from cache, App ID dropdown from fetched data, confirmation dialog, progress tracking, result summary badges
 - [x] Add FB appeal button to every account card (uses generic URL when no BM-specific URL available)
 - [x] Add info box explaining appeal requirements (business_management permission, Parent BM, Admin role)
+
+## Account Appeals UX Improvements
+- [x] Remove redundant App ID manual input box — now pure dropdown only (no __custom_app__ option)
+- [x] Show batch appeal section when 1+ accounts selected (not just when disabled accounts exist)
+- [x] Improved batch appeal UX — inline bar with BM/App dropdowns, auto-select first BM and App, cancel selection button
