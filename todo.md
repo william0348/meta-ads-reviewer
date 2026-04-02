@@ -111,3 +111,6 @@
 - [x] Add appeal button to AdDetailDialog for consistency
 - [x] Fix ad list not syncing with account filter selection — normalized account_id comparison
 - [x] Optimize Dashboard rendering performance for large ad lists (2363 ads) — pagination with 50 ads per page
+
+## Bug Fix: Duplicate Key Errors in Dashboard
+- [x] Fix React duplicate key errors caused by duplicate ad IDs in the ads list — added deduplicateAds() helper + composite key fallback

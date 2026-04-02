@@ -62,6 +62,17 @@ export function useDashboardData() {
   return ctx;
 }
 
+/**
+ * Deduplicate ads by ID, keeping the last occurrence (most recently fetched).
+ */
+function deduplicateAds(ads: DisapprovedAd[]): DisapprovedAd[] {
+  const map = new Map<string, DisapprovedAd>();
+  for (const ad of ads) {
+    if (ad.id) map.set(ad.id, ad);
+  }
+  return Array.from(map.values());
+}
+
 export function DashboardDataProvider({ children }: { children: React.ReactNode }) {
   const [ads, setAds] = useState<DisapprovedAd[]>([]);
   const [loading, setLoading] = useState(false);
@@ -106,7 +117,7 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
               policy_violations: adData.policy_violations ?? extractPolicyViolations(adData.ad_review_feedback, adData.issues_info),
             };
           });
-          setAds(parsedAds);
+          setAds(deduplicateAds(parsedAds));
           // Also update localStorage cache for offline/quick access
           setCachedAds(parsedAds, []);
           setCacheAgeStr(getCacheAge() || '從資料庫載入');
@@ -123,7 +134,7 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
             parsed_review_feedback: ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback),
             policy_violations: ad.policy_violations ?? extractPolicyViolations(ad.ad_review_feedback, ad.issues_info),
           }));
-          setAds(reparsed);
+          setAds(deduplicateAds(reparsed));
           setErrors(cached.errors);
           setCacheAgeStr(getCacheAge());
         }
@@ -272,8 +283,8 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
         }
       });
 
-      // Final state
-      setAds(result.ads);
+      // Final state (deduplicate to prevent duplicate key errors)
+      setAds(deduplicateAds(result.ads));
       setErrors(result.errors);
       setBatchProgress(null);
       setLastFetchTime(Date.now());
