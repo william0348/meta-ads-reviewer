@@ -24,8 +24,8 @@ import {
 import { toast } from "sonner";
 import CopyableId from "./CopyableId";
 import type { DisapprovedAd } from "@/lib/metaApi";
-import { requestAdReview } from "@/lib/metaApi";
-import { getAccessToken } from "@/lib/store";
+import { requestAdReview, buildAppealUrl } from "@/lib/metaApi";
+import { getAccessToken, getBmIdCache } from "@/lib/store";
 
 export interface AdDetailDialogProps {
   ad: DisapprovedAd | null;
@@ -35,9 +35,10 @@ export interface AdDetailDialogProps {
   onRefresh?: () => void;
   isRefreshing?: boolean;
   appNames?: Record<string, string>;
+  bmCache?: Record<string, { bmId: string; bmName: string }>;
 }
 
-export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, onRefresh, isRefreshing, appNames }: AdDetailDialogProps) {
+export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, onRefresh, isRefreshing, appNames, bmCache }: AdDetailDialogProps) {
   const [isAppealing, setIsAppealing] = useState(false);
 
   if (!ad) return null;
@@ -286,6 +287,24 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, on
               )}
               申請重新審核
             </Button>
+            {/* Facebook appeal link */}
+            {(() => {
+              const accountId = (ad.account_id || '').replace(/^act_/, '');
+              const effectiveBmCache = bmCache || getBmIdCache();
+              const bm = effectiveBmCache[accountId];
+              const appealUrl = bm ? buildAppealUrl(bm.bmId, accountId) : 'https://www.facebook.com/business/help/support';
+              return (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 border-rose-500/30 text-rose-600 hover:bg-rose-500/10"
+                  onClick={() => window.open(appealUrl, "_blank")}
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  前往 Facebook 申訴
+                </Button>
+              );
+            })()}
             <Button
               variant="outline"
               size="sm"

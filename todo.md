@@ -105,3 +105,9 @@
 - [x] Show appeal results per account (success/fail/invalid with Case ID)
 - [x] Register route /account-appeals in App.tsx and add sidebar nav item with ShieldAlert icon
 - [x] Auto-detect BM ID from cache, CopyableId components, FB external appeal link
+
+## Bug Fix: Missing Appeal Button, Account Sync & Performance
+- [x] Restore appeal button in expanded ad card — now always shows (uses generic FB support URL when no BM ID)
+- [x] Add appeal button to AdDetailDialog for consistency
+- [x] Fix ad list not syncing with account filter selection — normalized account_id comparison
+- [x] Optimize Dashboard rendering performance for large ad lists (2363 ads) — pagination with 50 ads per page

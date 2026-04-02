@@ -132,12 +132,18 @@ export default function Dashboard() {
   const [showAppealConfirm, setShowAppealConfirm] = useState(false);
   const [appealResults, setAppealResults] = useState<BatchAppealResult[] | null>(null);
 
+  // Pagination state
+  const PAGE_SIZE = 50;
+  const [currentPage, setCurrentPage] = useState(1);
+
   const accessToken = getAccessToken();
   const hasToken = !!accessToken;
 
   // Unique account IDs from ads
   const uniqueAccountIds = useMemo(() => {
-    return Array.from(new Set(ads.map((ad) => ad.account_id).filter(Boolean))) as string[];
+    return Array.from(new Set(
+      ads.map((ad) => (ad.account_id || '').replace(/^act_/, '')).filter(Boolean)
+    ));
   }, [ads]);
 
   // Unique App IDs from ads
@@ -211,9 +217,13 @@ export default function Dashboard() {
       });
     }
 
-    // Account filter
+    // Account filter (normalize both sides to strip act_ prefix)
     if (accountFilter !== "all") {
-      result = result.filter((ad) => ad.account_id === accountFilter);
+      const normalizedFilter = accountFilter.replace(/^act_/, '');
+      result = result.filter((ad) => {
+        const adAccId = (ad.account_id || '').replace(/^act_/, '');
+        return adAccId === normalizedFilter;
+      });
     }
 
     // App ID filter
@@ -268,6 +278,18 @@ export default function Dashboard() {
 
     return result;
   }, [ads, statusTab, searchQuery, groupFilterAccountIds, accountFilter, appFilter, sortMode, dateRange, accountNames]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusTab, searchQuery, groupFilter, accountFilter, appFilter, sortMode, dateRange]);
+
+  // Paginated ads
+  const totalPages = Math.max(1, Math.ceil(filteredAds.length / PAGE_SIZE));
+  const paginatedAds = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredAds.slice(start, start + PAGE_SIZE);
+  }, [filteredAds, currentPage]);
 
   // Export to CSV
   const exportCSV = () => {
@@ -325,10 +347,21 @@ export default function Dashboard() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedAdIds.size === filteredAds.length) {
-      setSelectedAdIds(new Set());
+    // Select/deselect only the current page's ads for performance
+    const pageAdIds = paginatedAds.map((ad) => ad.id);
+    const allPageSelected = pageAdIds.every((id) => selectedAdIds.has(id));
+    if (allPageSelected) {
+      setSelectedAdIds((prev) => {
+        const next = new Set(prev);
+        pageAdIds.forEach((id) => next.delete(id));
+        return next;
+      });
     } else {
-      setSelectedAdIds(new Set(filteredAds.map((ad) => ad.id)));
+      setSelectedAdIds((prev) => {
+        const next = new Set(prev);
+        pageAdIds.forEach((id) => next.add(id));
+        return next;
+      });
     }
   };
 
@@ -573,7 +606,7 @@ export default function Dashboard() {
                       return nameA.localeCompare(nameB);
                     })
                     .map((id) => {
-                      const count = ads.filter((a) => a.account_id === id).length;
+                      const count = ads.filter((a) => (a.account_id || '').replace(/^act_/, '') === id).length;
                       const accName = accountNames[id || ''];
                       return (
                         <SelectItem key={id} value={id!}>
@@ -737,14 +770,14 @@ export default function Dashboard() {
               onClick={toggleSelectAll}
               className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors"
             >
-              {selectedAdIds.size === filteredAds.length && filteredAds.length > 0 ? (
+              {paginatedAds.length > 0 && paginatedAds.every((ad) => selectedAdIds.has(ad.id)) ? (
                 <CheckSquare className="w-4 h-4 text-primary" />
               ) : (
                 <Square className="w-4 h-4 text-muted-foreground" />
               )}
-              {selectedAdIds.size === filteredAds.length && filteredAds.length > 0
-                ? "取消全選"
-                : "全選"}
+              {paginatedAds.length > 0 && paginatedAds.every((ad) => selectedAdIds.has(ad.id))
+                ? "取消本頁全選"
+                : "本頁全選"}
             </button>
             {selectedAdIds.size > 0 && (
               <Badge variant="secondary" className="text-xs">
@@ -842,14 +875,56 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Ads list */}
+      {/* Ads list (paginated) */}
       {filteredAds.length > 0 && (
         <div className="space-y-3">
-          {filteredAds.map((ad, index) => (
+          {/* Pagination info bar */}
+          <div className="flex items-center justify-between text-sm text-muted-foreground px-1">
+            <span>
+              顯示 {((currentPage - 1) * PAGE_SIZE) + 1} - {Math.min(currentPage * PAGE_SIZE, filteredAds.length)} / {filteredAds.length} 筆
+            </span>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline" size="sm" className="h-7 px-2 text-xs"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage(1)}
+                >
+                  首頁
+                </Button>
+                <Button
+                  variant="outline" size="sm" className="h-7 px-2 text-xs"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                >
+                  上一頁
+                </Button>
+                <span className="px-2 text-xs font-medium">
+                  {currentPage} / {totalPages}
+                </span>
+                <Button
+                  variant="outline" size="sm" className="h-7 px-2 text-xs"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  下一頁
+                </Button>
+                <Button
+                  variant="outline" size="sm" className="h-7 px-2 text-xs"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(totalPages)}
+                >
+                  末頁
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {paginatedAds.map((ad, index) => (
             <AdCard
               key={ad.id}
               ad={ad}
-              index={index}
+              index={(currentPage - 1) * PAGE_SIZE + index}
               expanded={expandedAd === ad.id}
               onToggle={() => setExpandedAd(expandedAd === ad.id ? null : ad.id)}
               onViewDetail={() => openAdDetail(ad)}
@@ -862,6 +937,48 @@ export default function Dashboard() {
               isRefreshing={refreshingAdId === ad.id}
             />
           ))}
+
+          {/* Bottom pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-1 pt-4">
+              <Button
+                variant="outline" size="sm" className="h-8 px-3 text-xs"
+                disabled={currentPage <= 1}
+                onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              >
+                上一頁
+              </Button>
+              {/* Page number buttons */}
+              {(() => {
+                const pages: number[] = [];
+                const maxButtons = 7;
+                let start = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+                let end = Math.min(totalPages, start + maxButtons - 1);
+                if (end - start + 1 < maxButtons) {
+                  start = Math.max(1, end - maxButtons + 1);
+                }
+                for (let i = start; i <= end; i++) pages.push(i);
+                return pages.map((p) => (
+                  <Button
+                    key={p}
+                    variant={p === currentPage ? "default" : "outline"}
+                    size="sm"
+                    className="h-8 w-8 p-0 text-xs"
+                    onClick={() => { setCurrentPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  >
+                    {p}
+                  </Button>
+                ));
+              })()}
+              <Button
+                variant="outline" size="sm" className="h-8 px-3 text-xs"
+                disabled={currentPage >= totalPages}
+                onClick={() => { setCurrentPage((p) => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              >
+                下一頁
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -870,6 +987,7 @@ export default function Dashboard() {
         ad={selectedAd}
         open={detailOpen}
         onOpenChange={setDetailOpen}
+        bmCache={bmCache}
         onAdUpdated={async () => {
           if (selectedAd) {
             const updated = await refreshSingleAd(selectedAd.id);
@@ -967,6 +1085,8 @@ function AdCard({
   const accountId = ad.account_id?.replace(/^act_/, "") || "";
   const bm = bmCache[accountId];
   const appealUrl = bm ? buildAppealUrl(bm.bmId, accountId) : null;
+  // Fallback: generic Facebook business support URL when no BM ID
+  const genericAppealUrl = `https://www.facebook.com/business/help/support`;
 
   return (
     <div className={`gradient-border overflow-hidden transition-colors ${selected ? 'ring-2 ring-primary/40' : ''}`}>
@@ -1195,17 +1315,15 @@ function AdCard({
                 {isRefreshing ? '更新中...' : '更新此廣告'}
               </Button>
 
-              {/* One-click appeal link */}
-              {appealUrl && (
-                <Button
-                  variant="outline" size="sm"
-                  className="gap-1.5 text-xs border-rose-500/30 text-rose-600 hover:bg-rose-500/10"
-                  onClick={() => window.open(appealUrl, "_blank")}
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  前往 Facebook 申訴
-                </Button>
-              )}
+              {/* One-click appeal link — always show, with BM-specific URL if available */}
+              <Button
+                variant="outline" size="sm"
+                className="gap-1.5 text-xs border-rose-500/30 text-rose-600 hover:bg-rose-500/10"
+                onClick={() => window.open(appealUrl || genericAppealUrl, "_blank")}
+              >
+                <ExternalLink className="w-3 h-3" />
+                前往 Facebook 申訴
+              </Button>
 
               <Button
                 variant="outline" size="sm" className="gap-1.5 text-xs"
