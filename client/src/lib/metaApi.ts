@@ -1041,12 +1041,23 @@ export async function requestAdAccountReview(
     // Clean account IDs — API expects numeric IDs without act_ prefix
     const numericIds = adAccountIds.map((id) => id.replace(/^act_/, ''));
 
-    const response = await fetch(`${GRAPH_API_BASE}/${parentBmId}/ad_review_requests`, {
+    // Clean BM ID and App ID — remove any non-numeric characters
+    const cleanBmId = parentBmId.trim().replace(/\D/g, '');
+    const cleanAppId = appId.trim().replace(/\D/g, '');
+
+    if (!cleanBmId) {
+      return { success: false, results: [], error: 'Business Manager ID 格式無效（需要純數字）' };
+    }
+    if (!cleanAppId) {
+      return { success: false, results: [], error: 'App ID 格式無效（需要純數字）' };
+    }
+
+    const response = await fetch(`${GRAPH_API_BASE}/${cleanBmId}/ad_review_requests`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         ad_account_ids: JSON.stringify(numericIds),
-        app: appId,
+        app: cleanAppId,
         access_token: accessToken,
       }),
     });
@@ -1063,6 +1074,22 @@ export async function requestAdAccountReview(
       if (errCode) detail += ')';
       if (errType) detail += ` [${errType}]`;
       if (traceId) detail += ` trace: ${traceId}`;
+
+      // Provide user-friendly hints for common errors
+      if (errCode === 1) {
+        detail += '\n\n\u53ef\u80fd\u539f\u56e0：\n' +
+          '1. BM ID \u4e0d\u6b63\u78ba \u2014 \u9700\u8981\u7684\u662f\u64c1\u6709 App \u7684 Parent Business Manager ID\n' +
+          '2. App ID \u4e0d\u6b63\u78ba \u2014 \u9700\u8981\u7684\u662f\u7522\u751f Token \u7684 App ID\n' +
+          '3. Token \u7f3a\u5c11 business_management \u6b0a\u9650\n' +
+          '4. \u7528\u6236\u4e0d\u662f\u8a72 BM \u7684 Admin\n' +
+          '5. \u5e33\u865f\u4e0d\u5c6c\u65bc\u8a72 BM \u7684 child ad account';
+      } else if (errCode === 10 || errCode === 200) {
+        detail += '\n\u2192 \u6b0a\u9650\u4e0d\u8db3\uff1a\u78ba\u8a8d Token \u6709 business_management \u6b0a\u9650\uff0c\u4e14\u7528\u6236\u662f BM \u7684 Admin';
+      } else if (errCode === 100) {
+        detail += '\n\u2192 \u53c3\u6578\u932f\u8aa4\uff1a\u78ba\u8a8d BM ID\u3001App ID \u548c Ad Account ID \u683c\u5f0f\u6b63\u78ba';
+      } else if (errCode === 17 || errCode === 4 || errCode === 32) {
+        detail += '\n\u2192 API \u901f\u7387\u9650\u5236\uff0c\u8acb\u7a0d\u5f8c\u518d\u8a66';
+      }
       return { success: false, results: [], error: detail };
     }
 
@@ -1070,8 +1097,8 @@ export async function requestAdAccountReview(
     const results: AccountAppealResult[] = data.response || [];
     const allSuccess = results.every((r: AccountAppealResult) => r.status === 'appeal_creation_success');
     return { success: allSuccess, results };
-  } catch {
-    return { success: false, results: [], error: 'Network error' };
+  } catch (err) {
+    return { success: false, results: [], error: `Network error: ${err instanceof Error ? err.message : 'Unknown'}` };
   }
 }
 

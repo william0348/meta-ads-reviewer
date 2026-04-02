@@ -114,3 +114,10 @@
 
 ## Bug Fix: Duplicate Key Errors in Dashboard
 - [x] Fix React duplicate key errors caused by duplicate ad IDs in the ads list — added deduplicateAds() helper + composite key fallback
+
+## Bug Fix: Ad Appeal OAuthException & Account Appeals Enhancements
+- [x] Improve ad appeal API error handling — added input validation, cleaned BM/App IDs, detailed error hints for Code 1 (BM/App mismatch, permissions)
+- [x] Improve App filter dropdown on Account Appeals page — shows account count per app, always visible when data loaded
+- [x] Improve batch appeal UX — BM ID dropdown from cache, App ID dropdown from fetched data, confirmation dialog, progress tracking, result summary badges
+- [x] Add FB appeal button to every account card (uses generic URL when no BM-specific URL available)
+- [x] Add info box explaining appeal requirements (business_management permission, Parent BM, Admin role)
