@@ -1,9 +1,6 @@
 /**
  * Account Appeals Page
  * View disabled ad accounts, filter by App ID, and submit appeals.
- * - App ID & BM ID selection via dropdown only (no manual input)
- * - Batch appeal appears when 1+ accounts selected
- * - Cleaner UX with inline batch appeal bar
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
@@ -32,8 +29,6 @@ import {
   Copy,
   ExternalLink,
   Filter,
-  Building2,
-  Info,
 } from 'lucide-react';
 import {
   fetchAdAccounts,
@@ -50,18 +45,7 @@ import {
   setCachedAutoAccounts,
   getBmIdCache,
   getAppealUrl,
-  type BmIdEntry,
 } from '@/lib/store';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 
 // Status badge color helper
 function getStatusColor(status: number): string {
@@ -112,28 +96,26 @@ export default function AccountAppeals() {
   const [appealBmId, setAppealBmId] = useState('');
   const [appealAppId, setAppealAppId] = useState('');
   const [appealing, setAppealing] = useState(false);
-  const [appealProgress, setAppealProgress] = useState({ completed: 0, total: 0 });
   const [appealResults, setAppealResults] = useState<AccountAppealResult[]>([]);
-  const [showAppealConfirm, setShowAppealConfirm] = useState(false);
 
-  // BM cache for dropdown
-  const [bmEntries, setBmEntries] = useState<BmIdEntry[]>([]);
-
-  // Load cached accounts and BM entries on mount
+  // Load cached accounts on mount
   useEffect(() => {
     const cached = getCachedAutoAccounts();
     if (cached.length > 0) {
       setAccounts(cached);
     }
-    // Load BM cache
-    const bmCache = getBmIdCache();
-    const entries = Object.values(bmCache);
-    setBmEntries(entries);
-    // Auto-select first BM if available
-    if (entries.length > 0) {
-      setAppealBmId(entries[0].bmId);
-    }
   }, []);
+
+  // Auto-detect BM ID from cache
+  useEffect(() => {
+    if (!appealBmId) {
+      const bmCache = getBmIdCache();
+      const bmIds = Object.values(bmCache);
+      if (bmIds.length > 0) {
+        setAppealBmId(bmIds[0].bmId);
+      }
+    }
+  }, [appealBmId]);
 
   // Fetch accounts from API
   const handleFetchAccounts = useCallback(async () => {
@@ -219,24 +201,6 @@ export default function AccountAppeals() {
     return Array.from(ids).sort();
   }, [accountAppIds]);
 
-  // Auto-select first App ID when uniqueAppIds changes
-  useEffect(() => {
-    if (uniqueAppIds.length > 0 && !appealAppId) {
-      setAppealAppId(uniqueAppIds[0]);
-    }
-  }, [uniqueAppIds, appealAppId]);
-
-  // Unique BM IDs from cache (for dropdown)
-  const uniqueBmIds = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const entry of bmEntries) {
-      if (!map.has(entry.bmId)) {
-        map.set(entry.bmId, entry.bmName);
-      }
-    }
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [bmEntries]);
-
   // Filtered accounts
   const filteredAccounts = useMemo(() => {
     let filtered = accounts;
@@ -291,19 +255,18 @@ export default function AccountAppeals() {
     });
   }, []);
 
-  // Submit batch appeal
+  // Submit appeal
   const handleAppeal = useCallback(async () => {
-    setShowAppealConfirm(false);
     if (!token) {
       toast.error('請先設定 Access Token');
       return;
     }
-    if (!appealBmId) {
-      toast.error('請選擇 Business Manager ID');
+    if (!appealBmId.trim()) {
+      toast.error('請輸入 Business Manager ID');
       return;
     }
-    if (!appealAppId) {
-      toast.error('請選擇 App ID');
+    if (!appealAppId.trim()) {
+      toast.error('請輸入 App ID');
       return;
     }
     if (selectedAccounts.size === 0) {
@@ -313,54 +276,34 @@ export default function AccountAppeals() {
 
     setAppealing(true);
     setAppealResults([]);
-    const accountIds = Array.from(selectedAccounts);
-    const totalBatches = Math.ceil(accountIds.length / 50);
-    setAppealProgress({ completed: 0, total: totalBatches });
-
     try {
+      const accountIds = Array.from(selectedAccounts);
+      // API max 50 per request, batch if needed
       const allResults: AccountAppealResult[] = [];
       for (let i = 0; i < accountIds.length; i += 50) {
         const batch = accountIds.slice(i, i + 50);
-        const batchIndex = Math.floor(i / 50) + 1;
-
-        toast.info(`正在提交第 ${batchIndex}/${totalBatches} 批申訴 (${batch.length} 個帳號)...`);
-
-        const result = await requestAdAccountReview(token, appealBmId, batch, appealAppId);
-
+        const result = await requestAdAccountReview(token, appealBmId.trim(), batch, appealAppId.trim());
         if (result.error) {
-          toast.error(`第 ${batchIndex} 批申訴失敗: ${result.error}`, { duration: 20000 });
+          toast.error(`申訴失敗: ${result.error}`, { duration: 15000 });
           break;
         }
         allResults.push(...result.results);
-        setAppealProgress({ completed: batchIndex, total: totalBatches });
-
-        // Small delay between batches
-        if (i + 50 < accountIds.length) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
       }
 
       setAppealResults(allResults);
 
       const successCount = allResults.filter((r) => r.status === 'appeal_creation_success').length;
-      const invalidCount = allResults.filter((r) => r.status === 'appeal_entity_invalid').length;
-      const failCount = allResults.filter((r) => r.status === 'appeal_creation_failure').length;
+      const failCount = allResults.length - successCount;
 
       if (successCount > 0) {
-        toast.success(
-          `申訴已提交 — 成功: ${successCount}` +
-          (invalidCount > 0 ? `, 不可申訴: ${invalidCount}` : '') +
-          (failCount > 0 ? `, 失敗: ${failCount}` : ''),
-          { duration: 10000 }
-        );
+        toast.success(`申訴已提交 — 成功: ${successCount}${failCount > 0 ? `, 失敗: ${failCount}` : ''}`, { duration: 8000 });
       } else if (allResults.length > 0) {
-        toast.error(`所有帳號申訴失敗 — 不可申訴: ${invalidCount}, 失敗: ${failCount}`, { duration: 10000 });
+        toast.error(`所有 ${failCount} 個帳號申訴失敗`, { duration: 10000 });
       }
     } catch (err: unknown) {
       toast.error(`申訴錯誤: ${err instanceof Error ? err.message : '未知錯誤'}`);
     } finally {
       setAppealing(false);
-      setAppealProgress({ completed: 0, total: 0 });
     }
   }, [token, appealBmId, appealAppId, selectedAccounts]);
 
@@ -463,10 +406,9 @@ export default function AccountAppeals() {
             className="pl-9"
           />
         </div>
-        {/* App filter dropdown — always show if we have app data */}
         {uniqueAppIds.length > 0 && (
           <Select value={appFilter} onValueChange={setAppFilter}>
-            <SelectTrigger className="w-full sm:w-[280px]">
+            <SelectTrigger className="w-[280px]">
               <div className="flex items-center gap-2">
                 <Smartphone className="w-4 h-4" />
                 <SelectValue placeholder="所有 App" />
@@ -476,154 +418,65 @@ export default function AccountAppeals() {
               <SelectItem value="all">
                 <div className="flex items-center gap-2">
                   <Filter className="w-3.5 h-3.5" />
-                  所有 App ({filteredAccounts.length})
+                  所有 App
                 </div>
               </SelectItem>
-              {uniqueAppIds.map((appId) => {
-                const count = Object.values(accountAppIds).filter(ids => ids.includes(appId)).length;
-                return (
-                  <SelectItem key={appId} value={appId}>
-                    <div className="flex items-center gap-2">
-                      <Smartphone className="w-3.5 h-3.5 text-blue-500" />
-                      {appNames[appId] ? `${appNames[appId]} (${count})` : `${appId} (${count})`}
-                    </div>
-                  </SelectItem>
-                );
-              })}
+              {uniqueAppIds.map((appId) => (
+                <SelectItem key={appId} value={appId}>
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-3.5 h-3.5 text-blue-500" />
+                    {appNames[appId] ? `${appNames[appId]} (${appId})` : appId}
+                  </div>
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         )}
       </div>
 
-      {/* Batch Appeal Bar — appears when 1+ accounts selected */}
-      {selectedAccounts.size > 0 && (
-        <Card className="border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/20">
+      {/* Appeal Configuration */}
+      {filteredAccounts.some((a) => a.account_status === 2) && (
+        <Card className="border-rose-200 dark:border-rose-900/50">
           <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold flex items-center gap-2 text-rose-600">
-                <Send className="w-4 h-4" />
-                批次申訴 — 已選 {selectedAccounts.size} 個帳號
-              </h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSelectedAccounts(new Set())}
-                className="text-muted-foreground"
-              >
-                取消選擇
-              </Button>
-            </div>
-
-            {/* Info box */}
-            <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300">
-              <Info className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium mb-1">申訴需要以下條件：</p>
-                <ul className="list-disc pl-4 space-y-0.5">
-                  <li>Token 需要 <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">business_management</code> 權限</li>
-                  <li>BM ID 需要是擁有 App 的 <strong>Parent Business Manager</strong> ID</li>
-                  <li>App ID 需要是產生 Token 的 App（Partner App ID）</li>
-                  <li>用戶需要是該 BM 的 Admin</li>
-                  <li>每次最多申訴 50 個帳號</li>
-                </ul>
+            <h3 className="font-semibold flex items-center gap-2 text-rose-600">
+              <Send className="w-4 h-4" />
+              批次申訴設定
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              選擇下方的停用帳號，填入 Business Manager ID 和 App ID 後提交申訴。
+              每次最多申訴 50 個帳號。需要 business_management 權限和管理員身份。
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1">
+                <label className="text-xs text-muted-foreground mb-1 block">Business Manager ID</label>
+                <Input
+                  placeholder="例如: 123456789012345"
+                  value={appealBmId}
+                  onChange={(e) => setAppealBmId(e.target.value)}
+                  className="font-mono text-sm"
+                />
               </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 items-end">
-              {/* BM ID selector */}
-              <div className="flex-1 w-full">
-                <label className="text-xs text-muted-foreground mb-1 block">
-                  <Building2 className="w-3 h-3 inline mr-1" />
-                  Business Manager ID（Parent BM）
-                </label>
-                {uniqueBmIds.length > 0 ? (
-                  <Select value={appealBmId} onValueChange={setAppealBmId}>
-                    <SelectTrigger>
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-3.5 h-3.5" />
-                        <SelectValue placeholder="選擇 BM" />
-                      </div>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {uniqueBmIds.map((bm) => (
-                        <SelectItem key={bm.id} value={bm.id}>
-                          <div className="flex items-center gap-2">
-                            <Building2 className="w-3.5 h-3.5 text-purple-500" />
-                            {bm.name ? `${bm.name} (${bm.id})` : bm.id}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    placeholder="例如: 123456789012345"
-                    value={appealBmId}
-                    onChange={(e) => setAppealBmId(e.target.value)}
-                    className="font-mono text-sm"
-                  />
-                )}
+              <div className="flex-1">
+                <label className="text-xs text-muted-foreground mb-1 block">App ID</label>
+                <Input
+                  placeholder="例如: 987654321098765"
+                  value={appealAppId}
+                  onChange={(e) => setAppealAppId(e.target.value)}
+                  className="font-mono text-sm"
+                />
               </div>
-
-              {/* App ID selector — pure dropdown */}
-              <div className="flex-1 w-full">
-                <label className="text-xs text-muted-foreground mb-1 block">
-                  <Smartphone className="w-3 h-3 inline mr-1" />
-                  App ID（Partner App）
-                </label>
-                {uniqueAppIds.length > 0 ? (
-                  <Select value={appealAppId} onValueChange={setAppealAppId}>
-                    <SelectTrigger>
-                      <div className="flex items-center gap-2">
-                        <Smartphone className="w-3.5 h-3.5" />
-                        <SelectValue placeholder="選擇 App" />
-                      </div>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {uniqueAppIds.map((appId) => {
-                        const count = Object.values(accountAppIds).filter(ids => ids.includes(appId)).length;
-                        return (
-                          <SelectItem key={appId} value={appId}>
-                            <div className="flex items-center gap-2">
-                              <Smartphone className="w-3.5 h-3.5 text-blue-500" />
-                              {appNames[appId] ? `${appNames[appId]} (${appId}) — ${count} 帳號` : `${appId} — ${count} 帳號`}
-                            </div>
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="text-xs text-muted-foreground p-2 border rounded-md bg-muted/50">
-                    請先點擊「取得 App 資訊」以載入 App 列表
-                  </div>
-                )}
-              </div>
-
-              {/* Submit button */}
-              <div className="shrink-0">
+              <div className="flex items-end">
                 <Button
-                  onClick={() => setShowAppealConfirm(true)}
-                  disabled={
-                    appealing ||
-                    selectedAccounts.size === 0 ||
-                    !appealBmId ||
-                    !appealAppId
-                  }
+                  onClick={handleAppeal}
+                  disabled={appealing || selectedAccounts.size === 0 || !appealBmId || !appealAppId}
                   variant="destructive"
-                  size="default"
                 >
                   {appealing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      申訴中 ({appealProgress.completed}/{appealProgress.total})
-                    </>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   ) : (
-                    <>
-                      <Send className="w-4 h-4 mr-2" />
-                      提交申訴 ({selectedAccounts.size})
-                    </>
+                    <Send className="w-4 h-4 mr-2" />
                   )}
+                  申訴 ({selectedAccounts.size})
                 </Button>
               </div>
             </div>
@@ -631,50 +484,11 @@ export default function AccountAppeals() {
         </Card>
       )}
 
-      {/* Appeal Confirmation Dialog */}
-      <AlertDialog open={showAppealConfirm} onOpenChange={setShowAppealConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>確認批次申訴</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <p>即將為 <strong>{selectedAccounts.size}</strong> 個帳號提交申訴。</p>
-              <div className="text-xs bg-muted p-2 rounded-lg space-y-1 font-mono">
-                <p>BM ID: {appealBmId} {uniqueBmIds.find(b => b.id === appealBmId)?.name ? `(${uniqueBmIds.find(b => b.id === appealBmId)?.name})` : ''}</p>
-                <p>App ID: {appealAppId} {appNames[appealAppId] ? `(${appNames[appealAppId]})` : ''}</p>
-                <p>帳號數: {selectedAccounts.size}{selectedAccounts.size > 50 ? ` (將分 ${Math.ceil(selectedAccounts.size / 50)} 批提交)` : ''}</p>
-              </div>
-              <p className="text-xs text-amber-600">
-                注意：申訴提交後無法撤回。請確認 BM ID 和 App ID 正確。
-              </p>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={handleAppeal} className="bg-rose-600 hover:bg-rose-700">
-              確認申訴
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Appeal Results */}
       {appealResults.length > 0 && (
         <Card>
           <CardContent className="p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-sm">申訴結果</h3>
-              <div className="flex gap-2 text-xs">
-                <Badge variant="outline" className="text-emerald-600 border-emerald-300">
-                  成功: {appealResults.filter(r => r.status === 'appeal_creation_success').length}
-                </Badge>
-                <Badge variant="outline" className="text-amber-600 border-amber-300">
-                  不可申訴: {appealResults.filter(r => r.status === 'appeal_entity_invalid').length}
-                </Badge>
-                <Badge variant="outline" className="text-rose-600 border-rose-300">
-                  失敗: {appealResults.filter(r => r.status === 'appeal_creation_failure').length}
-                </Badge>
-              </div>
-            </div>
+            <h3 className="font-semibold text-sm">申訴結果</h3>
             <div className="max-h-60 overflow-y-auto space-y-2">
               {appealResults.map((result, idx) => (
                 <div
@@ -682,16 +496,12 @@ export default function AccountAppeals() {
                   className={`p-3 rounded-lg text-sm ${
                     result.status === 'appeal_creation_success'
                       ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800'
-                      : result.status === 'appeal_entity_invalid'
-                      ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800'
                       : 'bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800'
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     {result.status === 'appeal_creation_success' ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    ) : result.status === 'appeal_entity_invalid' ? (
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
                     ) : (
                       <XCircle className="w-4 h-4 text-rose-600" />
                     )}
@@ -701,8 +511,6 @@ export default function AccountAppeals() {
                       className={
                         result.status === 'appeal_creation_success'
                           ? 'text-emerald-600 border-emerald-300'
-                          : result.status === 'appeal_entity_invalid'
-                          ? 'text-amber-600 border-amber-300'
                           : 'text-rose-600 border-rose-300'
                       }
                     >
@@ -794,8 +602,6 @@ export default function AccountAppeals() {
                             className={
                               appealResult.status === 'appeal_creation_success'
                                 ? 'text-emerald-600 border-emerald-300'
-                                : appealResult.status === 'appeal_entity_invalid'
-                                ? 'text-amber-600 border-amber-300'
                                 : 'text-rose-600 border-rose-300'
                             }
                           >
@@ -838,18 +644,17 @@ export default function AccountAppeals() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-2 shrink-0">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open(
-                          appealUrl || 'https://www.facebook.com/business/help/support',
-                          '_blank'
-                        )}
-                        title="在 Facebook 上申訴"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5 mr-1" />
-                        FB 申訴
-                      </Button>
+                      {appealUrl && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => window.open(appealUrl, '_blank')}
+                          title="在 Facebook 上申訴"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 mr-1" />
+                          FB 申訴
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>

@@ -922,7 +922,7 @@ export default function Dashboard() {
 
           {paginatedAds.map((ad, index) => (
             <AdCard
-              key={`${ad.id}-${index}`}
+              key={ad.id}
               ad={ad}
               index={(currentPage - 1) * PAGE_SIZE + index}
               expanded={expandedAd === ad.id}
