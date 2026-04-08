@@ -88,7 +88,7 @@ export default function AdDetailDialog({ ad, open, onOpenChange, appNames, bmCac
           {/* ── IDs Section ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 p-3 rounded-lg bg-muted/50">
             <CopyableId label="Ad ID" value={ad.id} />
-            {ad.account_id && <CopyableId label="帳號" value={ad.account_id.startsWith('act_') ? ad.account_id : `act_${ad.account_id}`} />}
+            {ad.account_id && <CopyableId label="帳號" value={(ad.account_id || '').replace(/^act_/, '')} />}
             {ad.campaign_id && <CopyableId label="Campaign ID" value={ad.campaign_id} />}
             {ad.adset_id && <CopyableId label="Ad Set ID" value={ad.adset_id} />}
             {ad.promoted_object_app_id && (
@@ -105,10 +105,20 @@ export default function AdDetailDialog({ ad, open, onOpenChange, appNames, bmCac
               const bm = effectiveBmCache[accountId];
               if (!bm) return null;
               return (
-                <div className="flex items-center gap-1.5">
-                  <Building2 className="w-3.5 h-3.5 text-purple-500" />
-                  <CopyableId label={bm.bmName ? `BM: ${bm.bmName}` : 'BM ID'} value={bm.bmId} />
-                </div>
+                <>
+                  {bm.bmName && (
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-purple-500" />
+                      <CopyableId label="BM Name" value={bm.bmName} />
+                    </div>
+                  )}
+                  {bm.bmId && (
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-purple-500" />
+                      <CopyableId label="BM ID" value={bm.bmId} />
+                    </div>
+                  )}
+                </>
               );
             })()}
           </div>

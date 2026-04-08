@@ -149,3 +149,14 @@
 
 ## Accounts Page: Only Show Active Auto-Fetched Accounts (Apr 8)
 - [x] Filter auto-fetched accounts in Accounts page to only show Active (account_status === 1) — toast shows skipped count
+
+## Dashboard Account Dropdown: Active Only (Apr 8)
+- [x] Filter Dashboard account dropdown to only show Active accounts — merged into batch UI improvements below
+
+## Dashboard UI Improvements (Apr 8 - batch)
+- [x] Account dropdown: only show Active accounts (uses getCachedAutoAccounts to filter)
+- [x] Ad cards: show BM Name & BM ID (BM ID shown in smaller monospace font)
+- [x] Ad cards: remove act_ prefix from account ID display (now shows numeric ID only)
+- [x] New filter: BM Name dropdown filter with Building2 icon and ad count per BM
+- [x] AdDetailDialog: BM Name and BM ID shown as separate CopyableId fields
+- [x] AdDetailDialog: account ID without act_ prefix

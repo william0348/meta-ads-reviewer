@@ -35,7 +35,7 @@ import {
   type DisapprovedAd, type BatchAppealResult,
 } from "@/lib/metaApi";
 import {
-  getAccessToken, getAccountGroups,
+  getAccessToken, getAccountGroups, getCachedAutoAccounts, getBmIdCache,
   type AccountGroup,
 } from "@/lib/store";
 import CopyableId from "@/components/CopyableId";
@@ -117,6 +117,7 @@ export default function Dashboard() {
   const [sortMode, setSortMode] = useState<SortMode>("spend_desc");
   const [dateRange, setDateRange] = useState<DateRange>("30d");
   const [appFilter, setAppFilter] = useState("all");
+  const [bmFilter, setBmFilter] = useState("all");
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
   const [selectedAd, setSelectedAd] = useState<DisapprovedAd | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -137,12 +138,42 @@ export default function Dashboard() {
   const accessToken = getAccessToken();
   const hasToken = !!accessToken;
 
-  // Unique account IDs from ads
+  // Active account IDs from cached auto accounts
+  const activeAccountIds = useMemo(() => {
+    const cached = getCachedAutoAccounts();
+    return new Set(cached.map((a) => a.id.replace(/^act_/, '')));
+  }, [ads]); // re-derive when ads change (after fetch)
+
+  // Unique account IDs from ads — only Active accounts
   const uniqueAccountIds = useMemo(() => {
-    return Array.from(new Set(
+    const allIds = Array.from(new Set(
       ads.map((ad) => (ad.account_id || '').replace(/^act_/, '')).filter(Boolean)
     ));
-  }, [ads]);
+    // If we have active account info, filter to active only
+    if (activeAccountIds.size > 0) {
+      return allIds.filter((id) => activeAccountIds.has(id));
+    }
+    return allIds;
+  }, [ads, activeAccountIds]);
+
+  // Unique BM names from bmCache for BM filter
+  const uniqueBmNames = useMemo(() => {
+    const localBmCache = { ...getBmIdCache(), ...bmCache };
+    const bmMap = new Map<string, { bmId: string; bmName: string; count: number }>();
+    for (const ad of ads) {
+      const accId = (ad.account_id || '').replace(/^act_/, '');
+      const bm = localBmCache[accId];
+      if (bm?.bmName) {
+        const key = bm.bmId || bm.bmName;
+        if (bmMap.has(key)) {
+          bmMap.get(key)!.count++;
+        } else {
+          bmMap.set(key, { bmId: bm.bmId, bmName: bm.bmName, count: 1 });
+        }
+      }
+    }
+    return Array.from(bmMap.entries()).sort((a, b) => a[1].bmName.localeCompare(b[1].bmName));
+  }, [ads, bmCache]);
 
   // Unique App IDs from ads
   const uniqueAppIds = useMemo(() => {
@@ -247,6 +278,16 @@ export default function Dashboard() {
       }
     }
 
+    // BM filter
+    if (bmFilter !== "all") {
+      const localBmCache = { ...getBmIdCache(), ...bmCache };
+      result = result.filter((ad) => {
+        const accId = (ad.account_id || '').replace(/^act_/, '');
+        const bm = localBmCache[accId];
+        return bm && (bm.bmId === bmFilter || bm.bmName === bmFilter);
+      });
+    }
+
     // Search filter
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -289,12 +330,12 @@ export default function Dashboard() {
     }
 
     return result;
-  }, [ads, statusTab, searchQuery, groupFilterAccountIds, accountFilter, appFilter, sortMode, dateRange, accountNames]);
+  }, [ads, statusTab, searchQuery, groupFilterAccountIds, accountFilter, appFilter, bmFilter, sortMode, dateRange, accountNames, bmCache]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusTab, searchQuery, groupFilter, accountFilter, appFilter, sortMode, dateRange]);
+  }, [statusTab, searchQuery, groupFilter, accountFilter, appFilter, bmFilter, sortMode, dateRange]);
 
   // Paginated ads
   const totalPages = Math.max(1, Math.ceil(filteredAds.length / PAGE_SIZE));
@@ -651,6 +692,23 @@ export default function Dashboard() {
                   {uniqueAppIds.noAppCount > 0 && (
                     <SelectItem value="__none__">無 App ID ({uniqueAppIds.noAppCount})</SelectItem>
                   )}
+                </SelectContent>
+              </Select>
+            )}
+
+            {uniqueBmNames.length > 0 && (
+              <Select value={bmFilter} onValueChange={setBmFilter}>
+                <SelectTrigger className="w-full sm:w-52">
+                  <Building2 className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+                  <SelectValue placeholder="所有 BM" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有 BM ({ads.length})</SelectItem>
+                  {uniqueBmNames.map(([key, { bmId, bmName, count }]) => (
+                    <SelectItem key={key} value={key}>
+                      {bmName} ({count})
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             )}
@@ -1152,7 +1210,7 @@ function AdCard({
             <span className="font-mono">ID: {ad.id}</span>
             {ad.account_id && (
               <span className="font-mono">
-                帳號: {ad.account_id.startsWith("act_") ? ad.account_id : `act_${ad.account_id}`}
+                帳號: {accountId}
                 {accountNames[accountId] && (
                   <span className="text-foreground font-medium font-sans ml-1">({accountNames[accountId]})</span>
                 )}
@@ -1161,7 +1219,7 @@ function AdCard({
             {bm && (
               <span className="text-purple-600 dark:text-purple-400 font-sans">
                 <Building2 className="w-3 h-3 inline mr-0.5" />
-                {bm.bmName || bm.bmId}
+                {bm.bmName}{bm.bmId && <span className="font-mono text-[10px] ml-1 opacity-70">{bm.bmId}</span>}
               </span>
             )}
             {ad.spend_30d !== undefined && ad.spend_30d > 0 && (
