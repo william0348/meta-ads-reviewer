@@ -182,3 +182,9 @@
 - [x] Updated AdCard display: shows "Agency" label when agency BM exists
 - [x] Updated AdDetailDialog: shows Agency BM and Owner BM as separate fields with labels
 - [x] All 16 tests passing
+
+## Fix Account Name Dropdown Display (Apr 8)
+- [x] Investigate why account filter dropdown shows IDs instead of names
+- [x] DB load path: extract account names from loaded ads + cachedAutoAccounts, update localStorage and state
+- [x] localStorage fallback path: same fix applied
+- [x] Dropdown now shows account names when data is loaded from DB or cache (no re-fetch needed)

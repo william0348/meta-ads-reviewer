@@ -129,6 +129,23 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
           // Also update localStorage cache for offline/quick access
           setCachedAds(parsedAds, []);
           setCacheAgeStr(getCacheAge() || '從資料庫載入');
+
+          // Extract account names from loaded ads and update cache
+          const adNames: Record<string, string> = {};
+          for (const ad of parsedAds) {
+            if (ad.account_name && ad.account_id) {
+              adNames[ad.account_id.replace(/^act_/, '')] = ad.account_name;
+            }
+          }
+          // Also merge names from cachedAutoAccounts
+          for (const acc of activeAccounts) {
+            const accId = (acc.account_id || acc.id || '').replace(/^act_/, '');
+            if (acc.name) adNames[accId] = acc.name;
+          }
+          if (Object.keys(adNames).length > 0) {
+            setAccountNames(adNames);
+            setAccountNamesState(getAccountNamesCache());
+          }
           if (filteredCount > 0) {
             toast.success(`已從資料庫載入 ${parsedAds.length} 個被拒登廣告（已過濾 ${filteredCount} 個非 Active/已排除帳號的廣告）`);
           } else {
@@ -163,6 +180,22 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
           setAds(reparsed);
           setErrors(cached.errors);
           setCacheAgeStr(getCacheAge());
+
+          // Extract account names from cached ads and auto accounts
+          const lsNames: Record<string, string> = {};
+          for (const ad of reparsed) {
+            if (ad.account_name && ad.account_id) {
+              lsNames[ad.account_id.replace(/^act_/, '')] = ad.account_name;
+            }
+          }
+          for (const acc of lsActiveAccounts) {
+            const accId = (acc.account_id || acc.id || '').replace(/^act_/, '');
+            if (acc.name) lsNames[accId] = acc.name;
+          }
+          if (Object.keys(lsNames).length > 0) {
+            setAccountNames(lsNames);
+            setAccountNamesState(getAccountNamesCache());
+          }
         }
       }
       setDbLoaded(true);
