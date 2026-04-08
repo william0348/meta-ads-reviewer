@@ -16,8 +16,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import {
-  AlertTriangle, Search, RefreshCw, ChevronDown, ChevronUp,
-  XCircle, Loader2, ImageOff, Filter, Download, ArrowUpDown,
+  AlertTriangle, Search, RefreshCw, ChevronDown, ChevronUp, XCircle, Loader2, ImageOff, Filter, Download, ArrowUpDown,
   Eye, Database, ExternalLink, Calendar, FolderOpen,
   CheckSquare, Square, RotateCcw, Timer, TimerOff, Smartphone,
 } from "lucide-react";
@@ -106,9 +105,8 @@ export default function Dashboard() {
   // ── Global state from DashboardDataContext ──
   const {
     ads, loading, errors, cacheAge, bmCache, accountNames,
-    batchProgress, autoRefreshInterval, refreshingAdId,
+    batchProgress, autoRefreshInterval,
     fetchData, clearCache, setAutoRefreshInterval, setAds, setErrors,
-    refreshSingleAd,
   } = useDashboardData();
 
   // ── Local UI state ──
@@ -178,21 +176,35 @@ export default function Dashboard() {
     return group ? group.accountIds : null;
   }, [groupFilter, groups]);
 
-  // Status tab counts (computed from all ads, before other filters)
+  // Date-filtered ads (before other filters, used for stats cards)
+  const dateFilteredAds = useMemo(() => {
+    const range = getDateRangeFromPreset(dateRange);
+    if (!range) return ads;
+    return filterAdsByDateRange(ads, range.start, range.end);
+  }, [ads, dateRange]);
+
+  // Unique account IDs from date-filtered ads (for stats card)
+  const dateFilteredAccountIds = useMemo(() => {
+    return new Set(
+      dateFilteredAds.map((ad) => (ad.account_id || '').replace(/^act_/, '')).filter(Boolean)
+    );
+  }, [dateFilteredAds]);
+
+  // Status tab counts (computed from date-filtered ads)
   const statusCounts = useMemo(() => {
     const counts: Record<StatusTab, number> = {
-      all: ads.length,
+      all: dateFilteredAds.length,
       appealable: 0,
       pending_review: 0,
       approved: 0,
       still_disapproved: 0,
     };
-    for (const ad of ads) {
+    for (const ad of dateFilteredAds) {
       const cat = classifyAdStatus(ad);
       counts[cat]++;
     }
     return counts;
-  }, [ads]);
+  }, [dateFilteredAds]);
 
   // Filtered and sorted ads
   const filteredAds = useMemo(() => {
@@ -489,8 +501,8 @@ export default function Dashboard() {
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatsCard label="被拒登廣告" value={ads.length} icon={<XCircle className="w-4 h-4" />} color="rose" />
-        <StatsCard label="受影響帳號" value={uniqueAccountIds.length} icon={<AlertTriangle className="w-4 h-4" />} color="amber" />
+        <StatsCard label="被拒登廣告" value={dateFilteredAds.length} icon={<XCircle className="w-4 h-4" />} color="rose" />
+        <StatsCard label="受影響帳號" value={dateFilteredAccountIds.size} icon={<AlertTriangle className="w-4 h-4" />} color="amber" />
         <StatsCard label="篩選結果" value={filteredAds.length} icon={<Filter className="w-4 h-4" />} color="sky" />
         <StatsCard label="錯誤帳號" value={errors.length} icon={<AlertTriangle className="w-4 h-4" />} color="amber" />
       </div>
@@ -933,8 +945,6 @@ export default function Dashboard() {
               appNames={appNames}
               selected={selectedAdIds.has(ad.id)}
               onToggleSelect={() => toggleAdSelection(ad.id)}
-              onRefresh={() => refreshSingleAd(ad.id)}
-              isRefreshing={refreshingAdId === ad.id}
             />
           ))}
 
@@ -988,17 +998,6 @@ export default function Dashboard() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         bmCache={bmCache}
-        onAdUpdated={async () => {
-          if (selectedAd) {
-            const updated = await refreshSingleAd(selectedAd.id);
-            if (updated) setSelectedAd(updated);
-          }
-        }}
-        onRefresh={selectedAd ? async () => {
-          const updated = await refreshSingleAd(selectedAd.id);
-          if (updated) setSelectedAd(updated);
-        } : undefined}
-        isRefreshing={!!selectedAd && refreshingAdId === selectedAd.id}
         appNames={appNames}
       />
 
@@ -1066,7 +1065,7 @@ function StatsCard({
 /* ─── Ad Card ─── */
 function AdCard({
   ad, index, expanded, onToggle, onViewDetail, bmCache, accountNames, appNames,
-  selected, onToggleSelect, onRefresh, isRefreshing,
+  selected, onToggleSelect,
 }: {
   ad: DisapprovedAd;
   index: number;
@@ -1078,8 +1077,6 @@ function AdCard({
   appNames: Record<string, string>;
   selected: boolean;
   onToggleSelect: () => void;
-  onRefresh: () => void;
-  isRefreshing: boolean;
 }) {
   const feedbackItems = ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback);
   const accountId = ad.account_id?.replace(/^act_/, "") || "";
@@ -1303,16 +1300,6 @@ function AdCard({
               <Button variant="default" size="sm" className="gap-1.5 text-xs" onClick={onViewDetail}>
                 <Eye className="w-3 h-3" />
                 查看詳情
-              </Button>
-
-              <Button
-                variant="outline" size="sm"
-                className="gap-1.5 text-xs"
-                onClick={onRefresh}
-                disabled={isRefreshing}
-              >
-                <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? '更新中...' : '更新此廣告'}
               </Button>
 
               {/* One-click appeal link — always show, with BM-specific URL if available */}

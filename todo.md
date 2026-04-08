@@ -123,7 +123,18 @@
 - [x] localStorage + DB dual persistence for excluded accounts
 
 ## Bug Fix: Account Filter Not Syncing with Ads List
-- [ ] Fix Dashboard account filter so ads list updates when account is switched
+- [x] Fix Dashboard account filter so ads list updates when account is switched — normalized account_id comparison already in place
 
 ## Feature: Only Fetch Ads from Active Accounts
 - [x] Filter DashboardDataContext to only fetch disapproved ads from accounts with Active status (account_status === 1), skip Disabled/Unsettled/etc.
+
+## Dashboard Cleanup (Apr 8)
+- [x] Stats cards: show counts based on filtered date range (not total)
+- [x] Remove "更新廣告" (refresh single ad) feature — removed from AdCard and AdDetailDialog
+- [x] Remove "編輯廣告" (edit ad) feature — removed refresh props from AdCard/AdDetailDialog
+
+## Agency BM Support + Cleanup (Apr 8)
+- [x] Fix BM ID fetching to also check agency relationship — now queries fields=business,agency, prefers agency BM
+- [x] Remove "更新此廣告" button from AdCard
+- [x] Remove refresh/edit features from AdDetailDialog
+- [x] Clean up refreshSingleAd references from Dashboard

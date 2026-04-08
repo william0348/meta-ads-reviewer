@@ -18,7 +18,6 @@ import {
   ExternalLink,
   ImageOff,
   Loader2,
-  RefreshCw,
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,14 +30,11 @@ export interface AdDetailDialogProps {
   ad: DisapprovedAd | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdUpdated?: () => void;
-  onRefresh?: () => void;
-  isRefreshing?: boolean;
   appNames?: Record<string, string>;
   bmCache?: Record<string, { bmId: string; bmName: string }>;
 }
 
-export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, onRefresh, isRefreshing, appNames, bmCache }: AdDetailDialogProps) {
+export default function AdDetailDialog({ ad, open, onOpenChange, appNames, bmCache }: AdDetailDialogProps) {
   const [isAppealing, setIsAppealing] = useState(false);
 
   if (!ad) return null;
@@ -57,10 +53,9 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, on
       const result = await requestAdReview(token, ad.id);
       if (result.success) {
         toast.success("已成功提交重新審核申請，廣告將進入審查中狀態");
-        onAdUpdated?.();
       } else {
         toast.error(`申訴失敗: ${result.error}`, {
-          duration: 15000, // Show for 15s so user can read the details
+          duration: 15000,
           description: `Ad ID: ${ad.id}`,
         });
       }
@@ -260,20 +255,6 @@ export default function AdDetailDialog({ ad, open, onOpenChange, onAdUpdated, on
 
           {/* ── Action Buttons ── */}
           <div className="flex flex-wrap gap-2">
-            {/* Refresh single ad */}
-            {onRefresh && (
-              <Button
-                onClick={onRefresh}
-                disabled={isRefreshing}
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? '更新中...' : '重新抓取此廣告'}
-              </Button>
-            )}
-
             <Button
               onClick={handleRequestReview}
               disabled={isAppealing}

@@ -713,20 +713,39 @@ export async function updateAdCreative(
 }
 
 /**
- * Fetch Business Manager ID for an ad account
+ * Fetch Business Manager ID for an ad account.
+ * Checks both `business` (owner BM) and `agency` (agency BM) relationships.
+ * Returns agency BM if available (since agency is typically the managing party),
+ * otherwise falls back to owner BM.
  */
 export async function fetchBmIdForAccount(
   accessToken: string,
   accountId: string
-): Promise<{ bmId: string; bmName: string } | null> {
+): Promise<{ bmId: string; bmName: string; agencyBmId?: string; agencyBmName?: string; ownerBmId?: string; ownerBmName?: string } | null> {
   try {
     const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
     const response = await fetch(
-      `${GRAPH_API_BASE}/${formattedId}?fields=business&access_token=${accessToken}`
+      `${GRAPH_API_BASE}/${formattedId}?fields=business,agency&access_token=${accessToken}`
     );
     const data = await response.json();
-    if (data.error || !data.business) return null;
-    return { bmId: data.business.id, bmName: data.business.name || '' };
+    if (data.error) return null;
+
+    const ownerBm = data.business ? { ownerBmId: data.business.id, ownerBmName: data.business.name || '' } : {};
+    const agencyBm = data.agency ? { agencyBmId: data.agency.id, agencyBmName: data.agency.name || '' } : {};
+
+    // If neither business nor agency exists, return null
+    if (!data.business && !data.agency) return null;
+
+    // Primary BM: prefer agency (managing party), fallback to owner
+    const primaryBmId = data.agency?.id || data.business?.id;
+    const primaryBmName = data.agency?.name || data.business?.name || '';
+
+    return {
+      bmId: primaryBmId,
+      bmName: primaryBmName,
+      ...ownerBm,
+      ...agencyBm,
+    };
   } catch {
     return null;
   }
