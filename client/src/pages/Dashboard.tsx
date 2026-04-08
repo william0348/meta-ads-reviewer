@@ -48,6 +48,7 @@ import {
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useDashboardData } from "@/contexts/DashboardDataContext";
+import DashboardCharts from "@/components/DashboardCharts";
 
 type SortMode = "newest" | "oldest" | "spend_desc" | "spend_asc" | "name" | "account_name";
 type DateRange = "7d" | "14d" | "30d" | "60d" | "90d" | "all";
@@ -547,6 +548,11 @@ export default function Dashboard() {
         <StatsCard label="篩選結果" value={filteredAds.length} icon={<Filter className="w-4 h-4" />} color="sky" />
         <StatsCard label="錯誤帳號" value={errors.length} icon={<AlertTriangle className="w-4 h-4" />} color="amber" />
       </div>
+
+      {/* Cumulative Charts */}
+      {dateFilteredAds.length > 0 && (
+        <DashboardCharts ads={dateFilteredAds} />
+      )}
 
       {/* Status Tab Bar */}
       {hasToken && ads.length > 0 && (
@@ -1130,7 +1136,7 @@ function AdCard({
   expanded: boolean;
   onToggle: () => void;
   onViewDetail: () => void;
-  bmCache: Record<string, { bmId: string; bmName: string }>;
+  bmCache: Record<string, { bmId: string; bmName: string; ownerBmId?: string; ownerBmName?: string; agencyBmId?: string; agencyBmName?: string }>;
   accountNames: Record<string, string>;
   appNames: Record<string, string>;
   selected: boolean;
@@ -1219,7 +1225,18 @@ function AdCard({
             {bm && (
               <span className="text-purple-600 dark:text-purple-400 font-sans">
                 <Building2 className="w-3 h-3 inline mr-0.5" />
-                {bm.bmName}{bm.bmId && <span className="font-mono text-[10px] ml-1 opacity-70">{bm.bmId}</span>}
+                {bm.agencyBmName ? (
+                  <>
+                    <span className="text-[10px] bg-purple-100 dark:bg-purple-900/40 px-1 rounded mr-0.5">Agency</span>
+                    {bm.agencyBmName}
+                    {bm.agencyBmId && <span className="font-mono text-[10px] ml-1 opacity-70">{bm.agencyBmId}</span>}
+                  </>
+                ) : (
+                  <>
+                    {bm.bmName}
+                    {bm.bmId && <span className="font-mono text-[10px] ml-1 opacity-70">{bm.bmId}</span>}
+                  </>
+                )}
               </span>
             )}
             {ad.spend_30d !== undefined && ad.spend_30d > 0 && (

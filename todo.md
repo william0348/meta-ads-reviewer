@@ -145,7 +145,7 @@
 - [ ] Show BM name in Dashboard account filter dropdown (deferred)
 
 ## Bug Fix: Dashboard Still Shows Non-Active Account Ads (Apr 8)
-- [ ] Fix DB-loaded ads to also filter out non-Active accounts (currently only API fetch is filtered)
+- [x] Fix DB-loaded ads to also filter out non-Active accounts (DB load and localStorage fallback both filter)
 
 ## Accounts Page: Only Show Active Auto-Fetched Accounts (Apr 8)
 - [x] Filter auto-fetched accounts in Accounts page to only show Active (account_status === 1) — toast shows skipped count
@@ -160,3 +160,25 @@
 - [x] New filter: BM Name dropdown filter with Building2 icon and ad count per BM
 - [x] AdDetailDialog: BM Name and BM ID shown as separate CopyableId fields
 - [x] AdDetailDialog: account ID without act_ prefix
+
+## Dashboard Charts (Apr 8)
+- [x] Add cumulative bar chart: Disapproved ad count by day (stacking/cumulative)
+- [x] Add cumulative bar chart: Affected spend amount by day (stacking/cumulative)
+
+## Disabled Account Filtering (Apr 8)
+- [x] Ensure auto-fetched accounts exclude disabled accounts (Accounts page)
+- [x] Ensure Dashboard does not display ads from disabled accounts (including DB-loaded ads)
+
+## Fix Agency BM Fetching (Apr 8)
+- [x] Research Meta Graph API: `agency` is NOT a documented field on Ad Account node
+- [x] Confirmed `/agencies` edge is the correct way to get agency-shared BM info
+- [x] Updated `fetchBmIdForAccount` to use `/agencies` edge instead of undocumented `agency` field
+- [x] Step 1: Query `business` field for owner BM (who owns the account)
+- [x] Step 2: Query `/agencies` edge for agency BMs (who shared access to the account)
+- [x] Updated `BmIdEntry` in store.ts to store ownerBmId/Name and agencyBmId/Name separately
+- [x] Updated `setBmIdForAccount` to accept extra agency/owner BM info
+- [x] Updated `fetchBmIdsForAccounts` to pass full BM info through
+- [x] Updated DashboardDataContext and Accounts.tsx to pass extra BM info when caching
+- [x] Updated AdCard display: shows "Agency" label when agency BM exists
+- [x] Updated AdDetailDialog: shows Agency BM and Owner BM as separate fields with labels
+- [x] All 16 tests passing

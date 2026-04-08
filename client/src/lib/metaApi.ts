@@ -714,8 +714,9 @@ export async function updateAdCreative(
 
 /**
  * Fetch Business Manager ID for an ad account.
- * Checks both `business` (owner BM) and `agency` (agency BM) relationships.
- * Returns agency BM if available (since agency is typically the managing party),
+ * 1. Queries `business` field for the owner BM (the BM that owns the account)
+ * 2. Queries `/agencies` edge for agency BMs (BMs that have agency access/shared the account)
+ * Returns agency BM as primary if available (since agency-shared is the managing party),
  * otherwise falls back to owner BM.
  */
 export async function fetchBmIdForAccount(
@@ -724,41 +725,76 @@ export async function fetchBmIdForAccount(
 ): Promise<{ bmId: string; bmName: string; agencyBmId?: string; agencyBmName?: string; ownerBmId?: string; ownerBmName?: string } | null> {
   try {
     const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
-    const response = await fetch(
-      `${GRAPH_API_BASE}/${formattedId}?fields=business,agency&access_token=${accessToken}`
-    );
-    const data = await response.json();
-    if (data.error) return null;
 
-    const ownerBm = data.business ? { ownerBmId: data.business.id, ownerBmName: data.business.name || '' } : {};
-    const agencyBm = data.agency ? { agencyBmId: data.agency.id, agencyBmName: data.agency.name || '' } : {};
+    // Step 1: Get owner BM via `business` field
+    let ownerBmId = '';
+    let ownerBmName = '';
+    try {
+      const ownerResponse = await fetch(
+        `${GRAPH_API_BASE}/${formattedId}?fields=business&access_token=${accessToken}`
+      );
+      const ownerData = await ownerResponse.json();
+      if (!ownerData.error && ownerData.business) {
+        ownerBmId = ownerData.business.id || '';
+        ownerBmName = ownerData.business.name || '';
+      }
+    } catch {
+      // Owner BM fetch failed, continue to try agencies
+    }
 
-    // If neither business nor agency exists, return null
-    if (!data.business && !data.agency) return null;
+    // Step 2: Get agency BMs via /agencies edge
+    let agencyBmId = '';
+    let agencyBmName = '';
+    try {
+      const agencyResponse = await fetch(
+        `${GRAPH_API_BASE}/${formattedId}/agencies?fields=id,name&access_token=${accessToken}`
+      );
+      const agencyData = await agencyResponse.json();
+      if (!agencyData.error && agencyData.data && agencyData.data.length > 0) {
+        // Take the first agency BM (most accounts have one agency)
+        agencyBmId = agencyData.data[0].id || '';
+        agencyBmName = agencyData.data[0].name || '';
+      }
+    } catch {
+      // Agency BM fetch failed, continue with owner BM
+    }
 
-    // Primary BM: prefer agency (managing party), fallback to owner
-    const primaryBmId = data.agency?.id || data.business?.id;
-    const primaryBmName = data.agency?.name || data.business?.name || '';
+    // If neither owner nor agency exists, return null
+    if (!ownerBmId && !agencyBmId) return null;
+
+    // Primary BM: prefer agency (managing/shared party), fallback to owner
+    const primaryBmId = agencyBmId || ownerBmId;
+    const primaryBmName = agencyBmName || ownerBmName;
 
     return {
       bmId: primaryBmId,
       bmName: primaryBmName,
-      ...ownerBm,
-      ...agencyBm,
+      ...(ownerBmId ? { ownerBmId, ownerBmName } : {}),
+      ...(agencyBmId ? { agencyBmId, agencyBmName } : {}),
     };
   } catch {
     return null;
   }
 }
 
+export interface BmResult {
+  bmId: string;
+  bmName: string;
+  ownerBmId?: string;
+  ownerBmName?: string;
+  agencyBmId?: string;
+  agencyBmName?: string;
+}
+
 /**
- * Fetch BM IDs for multiple accounts in parallel
+ * Fetch BM IDs for multiple accounts in parallel.
+ * Uses /agencies edge for agency-shared BM info.
  */
 export async function fetchBmIdsForAccounts(
   accessToken: string,
   accountIds: string[]
-): Promise<Record<string, { bmId: string; bmName: string }>> {
-  const result: Record<string, { bmId: string; bmName: string }> = {};
+): Promise<Record<string, BmResult>> {
+  const result: Record<string, BmResult> = {};
   const batchSize = 10;
 
   for (let i = 0; i < accountIds.length; i += batchSize) {

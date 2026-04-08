@@ -103,7 +103,12 @@ export default function Accounts() {
     try {
       const results = await fetchBmIdsForAccounts(accessToken, uncachedIds);
       for (const [accountId, bm] of Object.entries(results)) {
-        setBmIdForAccount(accountId, bm.bmId, bm.bmName);
+        setBmIdForAccount(accountId, bm.bmId, bm.bmName, {
+          ownerBmId: bm.ownerBmId,
+          ownerBmName: bm.ownerBmName,
+          agencyBmId: bm.agencyBmId,
+          agencyBmName: bm.agencyBmName,
+        });
       }
       setBmCache(getBmIdCache());
       if (Object.keys(results).length > 0) {

@@ -138,8 +138,12 @@ export function removeAccountFromGroup(groupId: string, accountId: string): Acco
 // ── BM ID Cache ──
 export interface BmIdEntry {
   accountId: string;
-  bmId: string;
-  bmName: string;
+  bmId: string;       // Primary BM ID (agency if available, else owner)
+  bmName: string;     // Primary BM Name
+  ownerBmId?: string;
+  ownerBmName?: string;
+  agencyBmId?: string;
+  agencyBmName?: string;
 }
 
 export function getBmIdCache(): Record<string, BmIdEntry> {
@@ -148,9 +152,18 @@ export function getBmIdCache(): Record<string, BmIdEntry> {
   try { return JSON.parse(stored); } catch { return {}; }
 }
 
-export function setBmIdForAccount(accountId: string, bmId: string, bmName: string): void {
+export function setBmIdForAccount(
+  accountId: string,
+  bmId: string,
+  bmName: string,
+  extra?: { ownerBmId?: string; ownerBmName?: string; agencyBmId?: string; agencyBmName?: string }
+): void {
   const cache = getBmIdCache();
-  cache[accountId] = { accountId, bmId, bmName };
+  cache[accountId] = {
+    accountId, bmId, bmName,
+    ...(extra?.ownerBmId ? { ownerBmId: extra.ownerBmId, ownerBmName: extra.ownerBmName } : {}),
+    ...(extra?.agencyBmId ? { agencyBmId: extra.agencyBmId, agencyBmName: extra.agencyBmName } : {}),
+  };
   localStorage.setItem(STORAGE_KEYS.BM_ID_CACHE, JSON.stringify(cache));
 }
 

@@ -20,6 +20,7 @@ import {
   getCachedAds, setCachedAds, clearCachedAds, getCacheAge,
   getAccountGroups, getBmIdCache, setBmIdForAccount,
   getAccountNamesCache, setAccountNames, getExcludedAccounts,
+  getCachedAutoAccounts,
 } from "@/lib/store";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -98,7 +99,15 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
     if (dbAds && !dbLoaded && !dbLoading) {
       if (dbAds.ads.length > 0) {
         try {
-          const parsedAds: DisapprovedAd[] = dbAds.ads.map(row => {
+          // Get Active account IDs to filter out disabled accounts
+          const activeAccounts = getCachedAutoAccounts();
+          const activeAccountIds = new Set(
+            activeAccounts.map(a => (a.account_id || a.id || '').replace(/^act_/, ''))
+          );
+          const excludedAccounts = new Set(getExcludedAccounts());
+          const hasActiveFilter = activeAccountIds.size > 0;
+
+          const allParsedAds: DisapprovedAd[] = dbAds.ads.map(row => {
             const adData = JSON.parse(row.adData) as DisapprovedAd;
             return {
               ...adData,
@@ -106,11 +115,25 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
               policy_violations: adData.policy_violations ?? extractPolicyViolations(adData.ad_review_feedback, adData.issues_info),
             };
           });
+
+          // Filter: only keep ads from Active & non-excluded accounts
+          const parsedAds = allParsedAds.filter(ad => {
+            const accId = (ad.account_id || '').replace(/^act_/, '');
+            if (excludedAccounts.has(accId)) return false;
+            if (hasActiveFilter && !activeAccountIds.has(accId)) return false;
+            return true;
+          });
+
+          const filteredCount = allParsedAds.length - parsedAds.length;
           setAds(parsedAds);
           // Also update localStorage cache for offline/quick access
           setCachedAds(parsedAds, []);
           setCacheAgeStr(getCacheAge() || '從資料庫載入');
-          toast.success(`已從資料庫載入 ${parsedAds.length} 個被拒登廣告`);
+          if (filteredCount > 0) {
+            toast.success(`已從資料庫載入 ${parsedAds.length} 個被拒登廣告（已過濾 ${filteredCount} 個非 Active/已排除帳號的廣告）`);
+          } else {
+            toast.success(`已從資料庫載入 ${parsedAds.length} 個被拒登廣告`);
+          }
         } catch (err) {
           console.error('[DB] Failed to parse saved ads:', err);
         }
@@ -118,11 +141,25 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
         // No DB data — fall back to localStorage cache
         const cached = getCachedAds();
         if (cached) {
-          const reparsed = cached.ads.map((ad) => ({
-            ...ad,
-            parsed_review_feedback: ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback),
-            policy_violations: ad.policy_violations ?? extractPolicyViolations(ad.ad_review_feedback, ad.issues_info),
-          }));
+          const lsActiveAccounts = getCachedAutoAccounts();
+          const lsActiveIds = new Set(
+            lsActiveAccounts.map(a => (a.account_id || a.id || '').replace(/^act_/, ''))
+          );
+          const lsExcluded = new Set(getExcludedAccounts());
+          const lsHasFilter = lsActiveIds.size > 0;
+
+          const reparsed = cached.ads
+            .map((ad) => ({
+              ...ad,
+              parsed_review_feedback: ad.parsed_review_feedback ?? parseReviewFeedback(ad.ad_review_feedback),
+              policy_violations: ad.policy_violations ?? extractPolicyViolations(ad.ad_review_feedback, ad.issues_info),
+            }))
+            .filter(ad => {
+              const accId = (ad.account_id || '').replace(/^act_/, '');
+              if (lsExcluded.has(accId)) return false;
+              if (lsHasFilter && !lsActiveIds.has(accId)) return false;
+              return true;
+            });
           setAds(reparsed);
           setErrors(cached.errors);
           setCacheAgeStr(getCacheAge());
@@ -346,7 +383,12 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
         try {
           const bmResults = await fetchBmIdsForAccounts(accessToken, uncachedBmIds);
           for (const [accountId, bm] of Object.entries(bmResults)) {
-            setBmIdForAccount(accountId, bm.bmId, bm.bmName);
+            setBmIdForAccount(accountId, bm.bmId, bm.bmName, {
+              ownerBmId: bm.ownerBmId,
+              ownerBmName: bm.ownerBmName,
+              agencyBmId: bm.agencyBmId,
+              agencyBmName: bm.agencyBmName,
+            });
           }
           setBmCache(getBmIdCache());
           if (Object.keys(bmResults).length > 0) {

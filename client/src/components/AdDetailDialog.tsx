@@ -32,7 +32,7 @@ export interface AdDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   appNames?: Record<string, string>;
-  bmCache?: Record<string, { bmId: string; bmName: string }>;
+  bmCache?: Record<string, { bmId: string; bmName: string; ownerBmId?: string; ownerBmName?: string; agencyBmId?: string; agencyBmName?: string }>;
 }
 
 export default function AdDetailDialog({ ad, open, onOpenChange, appNames, bmCache }: AdDetailDialogProps) {
@@ -106,13 +106,40 @@ export default function AdDetailDialog({ ad, open, onOpenChange, appNames, bmCac
               if (!bm) return null;
               return (
                 <>
-                  {bm.bmName && (
+                  {/* Agency BM (shared) — shown first if available */}
+                  {bm.agencyBmName && (
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-purple-500" />
+                      <CopyableId label="Agency BM" value={bm.agencyBmName} />
+                    </div>
+                  )}
+                  {bm.agencyBmId && (
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-purple-500" />
+                      <CopyableId label="Agency BM ID" value={bm.agencyBmId} />
+                    </div>
+                  )}
+                  {/* Owner BM — always show */}
+                  {bm.ownerBmName && (
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+                      <CopyableId label="Owner BM" value={bm.ownerBmName} />
+                    </div>
+                  )}
+                  {bm.ownerBmId && (
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+                      <CopyableId label="Owner BM ID" value={bm.ownerBmId} />
+                    </div>
+                  )}
+                  {/* Fallback: if no agency/owner breakdown, show primary */}
+                  {!bm.agencyBmName && !bm.ownerBmName && bm.bmName && (
                     <div className="flex items-center gap-1.5">
                       <Building2 className="w-3.5 h-3.5 text-purple-500" />
                       <CopyableId label="BM Name" value={bm.bmName} />
                     </div>
                   )}
-                  {bm.bmId && (
+                  {!bm.agencyBmId && !bm.ownerBmId && bm.bmId && (
                     <div className="flex items-center gap-1.5">
                       <Building2 className="w-3.5 h-3.5 text-purple-500" />
                       <CopyableId label="BM ID" value={bm.bmId} />
