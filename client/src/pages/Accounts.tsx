@@ -122,7 +122,10 @@ export default function Accounts() {
     }
     setLoading(true);
     try {
-      const accounts = await fetchAdAccounts(accessToken);
+      const allAccounts = await fetchAdAccounts(accessToken);
+      // Only keep Active accounts (account_status === 1)
+      const accounts = allAccounts.filter(acc => acc.account_status === 1);
+      const skippedCount = allAccounts.length - accounts.length;
       setAutoAccounts(accounts);
       setCachedAutoAccounts(accounts);
       // Update account names cache
@@ -137,7 +140,7 @@ export default function Accounts() {
         setAccountNames(names);
         setAccountNamesState(getAccountNamesCache());
       }
-      toast.success(`成功取得 ${accounts.length} 個廣告帳號`);
+      toast.success(`成功取得 ${accounts.length} 個 Active 廣告帳號${skippedCount > 0 ? `（已跳過 ${skippedCount} 個非 Active 帳號）` : ''}`);
 
       // Auto-fetch BM IDs for all accounts (including manual + group accounts)
       const manualIds = getManualAccounts();

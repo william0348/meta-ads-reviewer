@@ -18,7 +18,7 @@ import { useState, useMemo, useEffect } from "react";
 import {
   AlertTriangle, Search, RefreshCw, ChevronDown, ChevronUp, XCircle, Loader2, ImageOff, Filter, Download, ArrowUpDown,
   Eye, Database, ExternalLink, Calendar, FolderOpen,
-  CheckSquare, Square, RotateCcw, Timer, TimerOff, Smartphone,
+  CheckSquare, Square, RotateCcw, Timer, TimerOff, Smartphone, Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1156,6 +1156,12 @@ function AdCard({
                 {accountNames[accountId] && (
                   <span className="text-foreground font-medium font-sans ml-1">({accountNames[accountId]})</span>
                 )}
+              </span>
+            )}
+            {bm && (
+              <span className="text-purple-600 dark:text-purple-400 font-sans">
+                <Building2 className="w-3 h-3 inline mr-0.5" />
+                {bm.bmName || bm.bmId}
               </span>
             )}
             {ad.spend_30d !== undefined && ad.spend_30d > 0 && (

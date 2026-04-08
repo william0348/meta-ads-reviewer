@@ -19,6 +19,7 @@ import {
   ImageOff,
   Loader2,
   RotateCcw,
+  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
 import CopyableId from "./CopyableId";
@@ -98,6 +99,18 @@ export default function AdDetailDialog({ ad, open, onOpenChange, appNames, bmCac
                 value={ad.promoted_object_app_id}
               />
             )}
+            {(() => {
+              const accountId = (ad.account_id || '').replace(/^act_/, '');
+              const effectiveBmCache = bmCache || getBmIdCache();
+              const bm = effectiveBmCache[accountId];
+              if (!bm) return null;
+              return (
+                <div className="flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-purple-500" />
+                  <CopyableId label={bm.bmName ? `BM: ${bm.bmName}` : 'BM ID'} value={bm.bmId} />
+                </div>
+              );
+            })()}
           </div>
 
           {/* ── Campaign / AdSet Names ── */}

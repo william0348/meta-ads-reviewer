@@ -138,3 +138,14 @@
 - [x] Remove "更新此廣告" button from AdCard
 - [x] Remove refresh/edit features from AdDetailDialog
 - [x] Clean up refreshSingleAd references from Dashboard
+
+## BM Name Display (Apr 8)
+- [x] Show BM name (Agency/Owner) on ad cards in Dashboard — purple Building2 icon with BM name
+- [x] Show BM name in AdDetailDialog — CopyableId with BM ID and name label
+- [ ] Show BM name in Dashboard account filter dropdown (deferred)
+
+## Bug Fix: Dashboard Still Shows Non-Active Account Ads (Apr 8)
+- [ ] Fix DB-loaded ads to also filter out non-Active accounts (currently only API fetch is filtered)
+
+## Accounts Page: Only Show Active Auto-Fetched Accounts (Apr 8)
+- [x] Filter auto-fetched accounts in Accounts page to only show Active (account_status === 1) — toast shows skipped count
