@@ -121,3 +121,9 @@
 - [x] Dashboard: filter out excluded accounts when fetching ads (DashboardDataContext)
 - [x] Accounts page: added 「已排除」 filter tab with count, excluded accounts shown dimmed with strikethrough
 - [x] localStorage + DB dual persistence for excluded accounts
+
+## Bug Fix: Account Filter Not Syncing with Ads List
+- [ ] Fix Dashboard account filter so ads list updates when account is switched
+
+## Feature: Only Fetch Ads from Active Accounts
+- [x] Filter DashboardDataContext to only fetch disapproved ads from accounts with Active status (account_status === 1), skip Disabled/Unsettled/etc.

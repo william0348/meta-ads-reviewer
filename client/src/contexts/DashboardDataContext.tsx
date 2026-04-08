@@ -208,7 +208,13 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
       if (autoFetch) {
         try {
           const fetchedAccounts = await fetchAdAccounts(accessToken);
-          accountIds.push(...fetchedAccounts.map((a) => a.id));
+          // Only include Active accounts (account_status === 1)
+          const activeAccounts = fetchedAccounts.filter((a) => a.account_status === 1);
+          const skippedCount = fetchedAccounts.length - activeAccounts.length;
+          accountIds.push(...activeAccounts.map((a) => a.id));
+          if (skippedCount > 0) {
+            toast.info(`已跳過 ${skippedCount} 個非 Active 帳號（僅抓取 Active 帳號的被拒登廣告）`);
+          }
         } catch (err) {
           toast.error("無法取得廣告帳號列表：" + (err instanceof Error ? err.message : "未知錯誤"));
         }
