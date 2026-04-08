@@ -19,7 +19,7 @@ import {
   getAccessToken, getManualAccounts, getAutoFetch,
   getCachedAds, setCachedAds, clearCachedAds, getCacheAge,
   getAccountGroups, getBmIdCache, setBmIdForAccount,
-  getAccountNamesCache, setAccountNames,
+  getAccountNamesCache, setAccountNames, getExcludedAccounts,
 } from "@/lib/store";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -230,20 +230,31 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
         }
       }
 
-      if (accountIds.length === 0) {
-        toast.error("沒有找到任何廣告帳號。請確認 Token 權限或手動新增帳號。");
+      // Filter out excluded accounts
+      const excludedAccounts = getExcludedAccounts();
+      const filteredAccountIds = accountIds.filter(id => {
+        const numId = id.replace(/^act_/, '');
+        return !excludedAccounts.includes(numId);
+      });
+
+      if (filteredAccountIds.length === 0) {
+        toast.error("沒有找到任何廣告帳號。請確認 Token 權限或手動新增帳號。（排除帳號：" + excludedAccounts.length + "）");
         setLoading(false);
         fetchingRef.current = false;
         return;
       }
 
-      const totalAccounts = accountIds.length;
+      if (excludedAccounts.length > 0) {
+        toast.info(`已排除 ${excludedAccounts.length} 個帳號，實際抓取 ${filteredAccountIds.length} 個帳號`);
+      }
+
+      const totalAccounts = filteredAccountIds.length;
       const batchSize = 20;
       const totalBatches = Math.ceil(totalAccounts / batchSize);
       toast.info(`背景載入中：從 ${totalAccounts} 個帳號搜尋被拒登廣告（共 ${totalBatches} 批）...`);
 
       // Use incremental loading — update UI after each batch
-      const result = await fetchAllDisapprovedAds(accessToken, accountIds, (update) => {
+      const result = await fetchAllDisapprovedAds(accessToken, filteredAccountIds, (update) => {
         setBatchProgress({
           completed: update.completedAccounts,
           total: update.totalAccounts,

@@ -111,3 +111,13 @@
 - [x] Add appeal button to AdDetailDialog for consistency
 - [x] Fix ad list not syncing with account filter selection — normalized account_id comparison
 - [x] Optimize Dashboard rendering performance for large ad lists (2363 ads) — pagination with 50 ads per page
+
+## New Features (Apr 8)
+- [x] Dashboard: account names already displayed on ad cards (was already implemented)
+- [x] Remove Account Appeals page and sidebar nav entry — deleted AccountAppeals.tsx, removed route and nav item
+- [x] Accounts page: add exclude/include toggle per account with Eye/EyeOff icons
+- [x] DB: added excludedAccounts JSON field to user_settings table
+- [x] tRPC: added settings.saveExcludedAccounts procedure for DB persistence
+- [x] Dashboard: filter out excluded accounts when fetching ads (DashboardDataContext)
+- [x] Accounts page: added 「已排除」 filter tab with count, excluded accounts shown dimmed with strikethrough
+- [x] localStorage + DB dual persistence for excluded accounts

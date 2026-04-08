@@ -27,9 +27,12 @@ import {
   deleteAccountGroup, addAccountToGroup, removeAccountFromGroup,
   getBmIdCache, setBmIdForAccount, getAppealUrl,
   getAccountNamesCache, setAccountNames, getCachedAutoAccounts, setCachedAutoAccounts,
+  getExcludedAccounts, setExcludedAccounts,
   type AccountGroup,
 } from "@/lib/store";
 import CopyableId from "@/components/CopyableId";
+import { trpc } from "@/lib/trpc";
+import { EyeOff, Eye } from "lucide-react";
 
 export default function Accounts() {
   const [autoAccounts, setAutoAccounts] = useState<AdAccount[]>([]);
@@ -61,13 +64,18 @@ export default function Accounts() {
   const autoFetchEnabled = getAutoFetch();
 
   const [accountNames, setAccountNamesState] = useState<Record<string, string>>({});
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled' | 'other'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled' | 'other' | 'excluded'>('all');
+
+  // Excluded accounts
+  const [excludedAccountIds, setExcludedAccountIds] = useState<string[]>([]);
+  const saveExcludedMutation = trpc.settings.saveExcludedAccounts.useMutation();
 
   useEffect(() => {
     setManualAccountsList(getManualAccounts());
     setGroups(getAccountGroups());
     setBmCache(getBmIdCache());
     setAccountNamesState(getAccountNamesCache());
+    setExcludedAccountIds(getExcludedAccounts());
     // Load cached auto accounts
     const cachedAuto = getCachedAutoAccounts();
     if (cachedAuto.length > 0) setAutoAccounts(cachedAuto);
@@ -262,10 +270,29 @@ export default function Accounts() {
     }
   };
 
+  // Toggle exclude/include for an account
+  const handleToggleExclude = (accountId: string) => {
+    const cleaned = accountId.replace(/^act_/, '');
+    const newExcluded = excludedAccountIds.includes(cleaned)
+      ? excludedAccountIds.filter(id => id !== cleaned)
+      : [...excludedAccountIds, cleaned];
+    setExcludedAccountIds(newExcluded);
+    setExcludedAccounts(newExcluded);
+    // Persist to DB
+    saveExcludedMutation.mutate({ excludedAccounts: newExcluded });
+    const isNowExcluded = newExcluded.includes(cleaned);
+    toast.success(isNowExcluded ? `已排除帳號 act_${cleaned}` : `已恢復帳號 act_${cleaned}`);
+  };
+
   // Account status stats
   const statusStats = (() => {
-    const stats = { active: 0, disabled: 0, other: 0 };
+    const stats = { active: 0, disabled: 0, other: 0, excluded: 0 };
     for (const acc of autoAccounts) {
+      const numId = acc.account_id.replace(/^act_/, '');
+      if (excludedAccountIds.includes(numId)) {
+        stats.excluded++;
+        continue;
+      }
       if (acc.account_status === 1) stats.active++;
       else if (acc.account_status === 2) stats.disabled++;
       else stats.other++;
@@ -275,6 +302,11 @@ export default function Accounts() {
 
   // Filter auto accounts by status
   const filteredAutoAccounts = autoAccounts.filter(acc => {
+    const numId = acc.account_id.replace(/^act_/, '');
+    const isExcluded = excludedAccountIds.includes(numId);
+    if (statusFilter === 'excluded') return isExcluded;
+    // For non-excluded filters, hide excluded accounts
+    if (isExcluded) return false;
     if (statusFilter === 'all') return true;
     if (statusFilter === 'active') return acc.account_status === 1;
     if (statusFilter === 'disabled') return acc.account_status === 2;
@@ -570,6 +602,21 @@ export default function Accounts() {
                   <span className="tabular-nums">{statusStats.other}</span>
                 </button>
               )}
+              {statusStats.excluded > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('excluded')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                    statusFilter === 'excluded'
+                      ? 'bg-gray-500 text-white border-gray-500'
+                      : 'bg-gray-500/10 text-gray-500 border-gray-500/20 hover:bg-gray-500/20'
+                  }`}
+                >
+                  <EyeOff className="w-3 h-3" />
+                  已排除
+                  <span className="tabular-nums">{statusStats.excluded}</span>
+                </button>
+              )}
             </div>
             {filteredAutoAccounts.length === 0 && (
               <div className="text-center py-6">
@@ -579,19 +626,26 @@ export default function Accounts() {
               </div>
             )}
             {filteredAutoAccounts.map((account) => {
-              const bm = bmCache[account.account_id];
-              const appealUrl = getAppealUrl(account.account_id);
+              const numId = account.account_id.replace(/^act_/, '');
+              const bm = bmCache[numId] || bmCache[account.account_id];
+              const appealUrl = getAppealUrl(numId);
+              const isExcluded = excludedAccountIds.includes(numId);
               return (
-                <div key={account.id} className="flex items-center gap-3 p-3 rounded-lg transition-colors bg-muted/30 hover:bg-muted/50">
-                  <div className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 bg-blue-500/10">
-                    <Building2 className="w-4 h-4 text-blue-500" />
+                <div key={account.id} className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${isExcluded ? 'bg-muted/20 opacity-60' : 'bg-muted/30 hover:bg-muted/50'}`}>
+                  <div className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${isExcluded ? 'bg-gray-500/10' : 'bg-blue-500/10'}`}>
+                    {isExcluded ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Building2 className="w-4 h-4 text-blue-500" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate">{account.name || "Unnamed Account"}</span>
+                      <span className={`text-sm font-medium truncate ${isExcluded ? 'line-through text-muted-foreground' : ''}`}>{account.name || "Unnamed Account"}</span>
                       <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${getStatusColor(account.account_status)}`}>
                         {getAccountStatusLabel(account.account_status)}
                       </Badge>
+                      {isExcluded && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-gray-500/10 text-gray-500 border-gray-500/20">
+                          已排除
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-0.5">
                       <CopyableId value={account.id} label="" className="text-[11px]" />
@@ -604,6 +658,14 @@ export default function Accounts() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      size="icon" variant="ghost"
+                      className={`h-7 w-7 ${isExcluded ? 'text-emerald-500 hover:text-emerald-600' : 'text-muted-foreground hover:text-rose-500'}`}
+                      onClick={() => handleToggleExclude(numId)}
+                      title={isExcluded ? '恢復抓取此帳號' : '排除此帳號（不抓取廣告）'}
+                    >
+                      {isExcluded ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                    </Button>
                     {appealUrl && (
                       <Button
                         size="icon" variant="ghost" className="h-7 w-7"

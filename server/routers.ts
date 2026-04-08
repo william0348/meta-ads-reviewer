@@ -32,6 +32,7 @@ export const appRouter = router({
           bmIds: null,
           accountGroups: null,
           manualAccounts: null,
+          excludedAccounts: [],
         };
       }
       return {
@@ -40,6 +41,7 @@ export const appRouter = router({
         bmIds: settings.bmIds ? JSON.parse(settings.bmIds) : null,
         accountGroups: settings.accountGroups ? JSON.parse(settings.accountGroups) : null,
         manualAccounts: settings.manualAccounts ? JSON.parse(settings.manualAccounts) : null,
+        excludedAccounts: settings.excludedAccounts ? JSON.parse(settings.excludedAccounts) : [],
       };
     }),
 
@@ -96,6 +98,18 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    /** Save/update excluded accounts */
+    saveExcludedAccounts: protectedProcedure
+      .input(z.object({
+        excludedAccounts: z.array(z.string()),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await upsertUserSettings(ctx.user.id, {
+          excludedAccounts: JSON.stringify(input.excludedAccounts),
+        });
+        return { success: true };
+      }),
+
     /** Save all settings at once (bulk update) */
     saveAll: protectedProcedure
       .input(z.object({
@@ -104,6 +118,7 @@ export const appRouter = router({
         bmIds: z.string().optional(),
         accountGroups: z.string().optional(),
         manualAccounts: z.string().optional(),
+        excludedAccounts: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const data: Record<string, string | null> = {};
@@ -112,6 +127,7 @@ export const appRouter = router({
         if (input.bmIds !== undefined) data.bmIds = input.bmIds;
         if (input.accountGroups !== undefined) data.accountGroups = input.accountGroups;
         if (input.manualAccounts !== undefined) data.manualAccounts = input.manualAccounts;
+        if (input.excludedAccounts !== undefined) data.excludedAccounts = input.excludedAccounts;
         await upsertUserSettings(ctx.user.id, data);
         return { success: true };
       }),

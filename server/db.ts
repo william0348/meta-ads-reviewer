@@ -117,6 +117,7 @@ export async function upsertUserSettings(
     if (data.bmIds !== undefined) updateSet.bmIds = data.bmIds;
     if (data.accountGroups !== undefined) updateSet.accountGroups = data.accountGroups;
     if (data.manualAccounts !== undefined) updateSet.manualAccounts = data.manualAccounts;
+    if (data.excludedAccounts !== undefined) updateSet.excludedAccounts = data.excludedAccounts;
     if (Object.keys(updateSet).length > 0) {
       await db.update(userSettings).set(updateSet).where(eq(userSettings.userId, userId));
     }

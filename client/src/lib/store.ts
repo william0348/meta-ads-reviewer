@@ -17,6 +17,7 @@ const STORAGE_KEYS = {
   BM_ID_CACHE: 'meta_ads_reviewer_bm_ids',
   ACCOUNT_NAMES: 'meta_ads_reviewer_account_names',
   CACHED_AUTO_ACCOUNTS: 'meta_ads_reviewer_auto_accounts',
+  EXCLUDED_ACCOUNTS: 'meta_ads_reviewer_excluded_accounts',
 } as const;
 
 // ── Access Token ──
@@ -269,6 +270,35 @@ export function setCachedAutoAccounts(accounts: AdAccount[]): void {
     if (acc.name) names[id] = acc.name;
   }
   if (Object.keys(names).length > 0) setAccountNames(names);
+}
+
+// ── Excluded Accounts ──
+export function getExcludedAccounts(): string[] {
+  const stored = localStorage.getItem(STORAGE_KEYS.EXCLUDED_ACCOUNTS);
+  if (!stored) return [];
+  try { return JSON.parse(stored); } catch { return []; }
+}
+
+export function setExcludedAccounts(accountIds: string[]): void {
+  localStorage.setItem(STORAGE_KEYS.EXCLUDED_ACCOUNTS, JSON.stringify(accountIds));
+}
+
+export function toggleExcludedAccount(accountId: string): string[] {
+  const excluded = getExcludedAccounts();
+  const cleaned = accountId.replace(/^act_/, '');
+  const idx = excluded.indexOf(cleaned);
+  if (idx >= 0) {
+    excluded.splice(idx, 1);
+  } else {
+    excluded.push(cleaned);
+  }
+  setExcludedAccounts(excluded);
+  return excluded;
+}
+
+export function isAccountExcluded(accountId: string): boolean {
+  const cleaned = accountId.replace(/^act_/, '');
+  return getExcludedAccounts().includes(cleaned);
 }
 
 // ── Clear All ──

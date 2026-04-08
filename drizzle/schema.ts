@@ -36,6 +36,8 @@ export const userSettings = mysqlTable("user_settings", {
   accountGroups: text("accountGroups"),
   /** JSON array of manually added accounts: [{id, name}] */
   manualAccounts: text("manualAccounts"),
+  /** JSON array of excluded account IDs: ["123456", "789012"] */
+  excludedAccounts: text("excludedAccounts"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
