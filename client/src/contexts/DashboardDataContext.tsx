@@ -87,6 +87,9 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
   const clearAdsMutation = trpc.ads.clear.useMutation();
   const updateAdMutation = trpc.ads.updateOne.useMutation();
   const recordFetchMutation = trpc.ads.recordFetch.useMutation();
+  const saveAccountNamesMut = trpc.settings.saveAccountNames.useMutation();
+  const saveBmCacheMut = trpc.settings.saveBmCache.useMutation();
+  const saveAutoAccountsMut = trpc.settings.saveAutoAccounts.useMutation();
 
   // Load from DB on mount (primary source of truth)
   const { data: dbAds, isLoading: dbLoading, refetch: refetchDbAds } = trpc.ads.load.useQuery(
@@ -202,11 +205,41 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
     }
   }, [dbAds, dbLoaded, dbLoading]);
 
-  // Load BM cache and account names on mount
+  // Load BM cache and account names on mount (from localStorage first, then DB overwrites)
   useEffect(() => {
     setBmCache(getBmIdCache());
     setAccountNamesState(getAccountNamesCache());
   }, []);
+
+  // Load account names, BM cache, and auto accounts from DB settings
+  const { data: dbSettings } = trpc.settings.get.useQuery(undefined, {
+    enabled: true, staleTime: Infinity, refetchOnWindowFocus: false,
+  });
+
+  useEffect(() => {
+    if (!dbSettings) return;
+    // Merge DB account names into state
+    if (dbSettings.accountNames && typeof dbSettings.accountNames === 'object' && Object.keys(dbSettings.accountNames).length > 0) {
+      const dbNames = dbSettings.accountNames as Record<string, string>;
+      setAccountNames(dbNames);
+      setAccountNamesState(prev => ({ ...prev, ...dbNames }));
+    }
+    // Merge DB BM cache into state
+    if (dbSettings.bmCacheData && typeof dbSettings.bmCacheData === 'object' && Object.keys(dbSettings.bmCacheData).length > 0) {
+      const dbBm = dbSettings.bmCacheData as Record<string, any>;
+      for (const [accId, entry] of Object.entries(dbBm)) {
+        if (entry?.bmId) {
+          setBmIdForAccount(accId, entry.bmId, entry.bmName || '', {
+            ownerBmId: entry.ownerBmId,
+            ownerBmName: entry.ownerBmName,
+            agencyBmId: entry.agencyBmId,
+            agencyBmName: entry.agencyBmName,
+          });
+        }
+      }
+      setBmCache(getBmIdCache());
+    }
+  }, [dbSettings]);
 
   // Refresh cache age display every minute
   useEffect(() => {
@@ -282,6 +315,10 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
           const activeAccounts = fetchedAccounts.filter((a) => a.account_status === 1);
           const skippedCount = fetchedAccounts.length - activeAccounts.length;
           accountIds.push(...activeAccounts.map((a) => a.id));
+          // Sync auto accounts to DB
+          saveAutoAccountsMut.mutateAsync({ autoAccounts: JSON.stringify(activeAccounts) }).catch(() => {
+            console.warn('[DB] Failed to sync auto accounts to DB');
+          });
           if (skippedCount > 0) {
             toast.info(`已跳過 ${skippedCount} 個非 Active 帳號（僅抓取 Active 帳號的被拒登廣告）`);
           }
@@ -384,7 +421,7 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
         console.warn('[DB] Failed to record fetch history');
       }
 
-      // Update account names from all ads
+      // Update account names from all ads and sync to DB
       const names: Record<string, string> = {};
       for (const ad of result.ads) {
         if (ad.account_name && ad.account_id) {
@@ -394,6 +431,10 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
       if (Object.keys(names).length > 0) {
         setAccountNames(names);
         setAccountNamesState(getAccountNamesCache());
+        // Sync to DB
+        saveAccountNamesMut.mutateAsync({ accountNames: JSON.stringify(names) }).catch(() => {
+          console.warn('[DB] Failed to sync account names to DB');
+        });
       }
 
       if (result.ads.length > 0) {
@@ -426,6 +467,10 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
           setBmCache(getBmIdCache());
           if (Object.keys(bmResults).length > 0) {
             toast.success(`自動取得 ${Object.keys(bmResults).length} 個帳號的 BM ID`);
+            // Sync BM cache to DB
+            saveBmCacheMut.mutateAsync({ bmCache: JSON.stringify(getBmIdCache()) }).catch(() => {
+              console.warn('[DB] Failed to sync BM cache to DB');
+            });
           }
         } catch {
           console.warn('Auto BM ID fetch failed');
@@ -437,7 +482,7 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, [saveAdsToDb, recordFetchMutation]);
+  }, [saveAdsToDb, recordFetchMutation, saveAccountNamesMut, saveBmCacheMut, saveAutoAccountsMut]);
 
   /**
    * Refresh a single ad's data from Meta API and update both local state and DB.

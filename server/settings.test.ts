@@ -148,4 +148,127 @@ describe("settings router", () => {
       caller.settings.saveToken({ accessToken: "EAAtest" })
     ).rejects.toThrow();
   });
+
+  // ─── Account Names ───
+  it("saves and retrieves account names", async () => {
+    const ctx = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    const names = { "123456": "My Account", "789012": "Other Account" };
+    const saveResult = await caller.settings.saveAccountNames({
+      accountNames: JSON.stringify(names),
+    });
+    expect(saveResult.success).toBe(true);
+
+    const retrieved = await caller.settings.getAccountNames();
+    expect(retrieved).toEqual(names);
+  });
+
+  it("merges account names on subsequent saves", async () => {
+    const ctx = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    await caller.settings.saveAccountNames({
+      accountNames: JSON.stringify({ "111": "First" }),
+    });
+    await caller.settings.saveAccountNames({
+      accountNames: JSON.stringify({ "222": "Second" }),
+    });
+
+    const retrieved = await caller.settings.getAccountNames();
+    expect(retrieved).toEqual({ "111": "First", "222": "Second" });
+  });
+
+  // ─── BM Cache ───
+  it("saves and retrieves BM cache", async () => {
+    const ctx = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    const bmCache = {
+      "123456": {
+        accountId: "123456",
+        bmId: "bm_001",
+        bmName: "My BM",
+        ownerBmId: "owner_001",
+        ownerBmName: "Owner BM",
+      },
+    };
+    const saveResult = await caller.settings.saveBmCache({
+      bmCache: JSON.stringify(bmCache),
+    });
+    expect(saveResult.success).toBe(true);
+
+    const retrieved = await caller.settings.getBmCache();
+    expect(retrieved["123456"]).toBeDefined();
+    expect(retrieved["123456"].bmId).toBe("bm_001");
+    expect(retrieved["123456"].bmName).toBe("My BM");
+  });
+
+  it("merges BM cache on subsequent saves", async () => {
+    const ctx = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    await caller.settings.saveBmCache({
+      bmCache: JSON.stringify({ "111": { accountId: "111", bmId: "bm_a", bmName: "BM A" } }),
+    });
+    await caller.settings.saveBmCache({
+      bmCache: JSON.stringify({ "222": { accountId: "222", bmId: "bm_b", bmName: "BM B" } }),
+    });
+
+    const retrieved = await caller.settings.getBmCache();
+    expect(retrieved["111"]).toBeDefined();
+    expect(retrieved["222"]).toBeDefined();
+  });
+
+  // ─── Auto Accounts ───
+  it("saves and retrieves auto accounts", async () => {
+    const ctx = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    const autoAccounts = [
+      { id: "act_111", account_id: "111", name: "Account 1", account_status: 1 },
+      { id: "act_222", account_id: "222", name: "Account 2", account_status: 1 },
+    ];
+    const saveResult = await caller.settings.saveAutoAccounts({
+      autoAccounts: JSON.stringify(autoAccounts),
+    });
+    expect(saveResult.success).toBe(true);
+
+    const retrieved = await caller.settings.getAutoAccounts();
+    expect(retrieved).toHaveLength(2);
+    expect(retrieved[0].name).toBe("Account 1");
+  });
+
+  // ─── settings.get returns new fields ───
+  it("settings.get returns accountNames, bmCacheData, and autoAccounts", async () => {
+    const ctx = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    // Save some data first
+    await caller.settings.saveAccountNames({
+      accountNames: JSON.stringify({ "111": "Test Account" }),
+    });
+    await caller.settings.saveBmCache({
+      bmCache: JSON.stringify({ "111": { bmId: "bm_x", bmName: "BM X" } }),
+    });
+    await caller.settings.saveAutoAccounts({
+      autoAccounts: JSON.stringify([{ id: "act_111", account_id: "111", name: "Test", account_status: 1 }]),
+    });
+
+    const settings = await caller.settings.get();
+    expect(settings.accountNames).toEqual({ "111": "Test Account" });
+    expect(settings.bmCacheData["111"]).toBeDefined();
+    expect(settings.bmCacheData["111"].bmId).toBe("bm_x");
+    expect(settings.autoAccounts).toHaveLength(1);
+  });
+
+  it("settings.get returns empty defaults for new user", async () => {
+    const ctx = createAuthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    const settings = await caller.settings.get();
+    expect(settings.accountNames).toEqual({});
+    expect(settings.bmCacheData).toEqual({});
+    expect(settings.autoAccounts).toEqual([]);
+  });
 });

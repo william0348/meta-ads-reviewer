@@ -38,6 +38,12 @@ export const userSettings = mysqlTable("user_settings", {
   manualAccounts: text("manualAccounts"),
   /** JSON array of excluded account IDs: ["123456", "789012"] */
   excludedAccounts: text("excludedAccounts"),
+  /** JSON object of account names: {"accountId": "Account Name"} */
+  accountNames: longtext("accountNames"),
+  /** JSON object of BM cache: {"accountId": {bmId, bmName, ownerBmId, ...}} */
+  bmCacheData: longtext("bmCacheData"),
+  /** JSON array of auto-fetched accounts: [{id, account_id, name, account_status, ...}] */
+  autoAccounts: longtext("autoAccounts"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

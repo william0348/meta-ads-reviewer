@@ -26,14 +26,17 @@ export const appRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       const settings = await getUserSettings(ctx.user.id);
       if (!settings) {
-        return {
-          accessToken: null,
-          tokenLabel: null,
-          bmIds: null,
-          accountGroups: null,
-          manualAccounts: null,
-          excludedAccounts: [],
-        };
+      return {
+        accessToken: null,
+        tokenLabel: null,
+        bmIds: null,
+        accountGroups: null,
+        manualAccounts: null,
+        excludedAccounts: [],
+        accountNames: {},
+        bmCacheData: {},
+        autoAccounts: [],
+      };
       }
       return {
         accessToken: settings.accessToken,
@@ -42,6 +45,9 @@ export const appRouter = router({
         accountGroups: settings.accountGroups ? JSON.parse(settings.accountGroups) : null,
         manualAccounts: settings.manualAccounts ? JSON.parse(settings.manualAccounts) : null,
         excludedAccounts: settings.excludedAccounts ? JSON.parse(settings.excludedAccounts) : [],
+        accountNames: settings.accountNames ? JSON.parse(settings.accountNames) : {},
+        bmCacheData: settings.bmCacheData ? JSON.parse(settings.bmCacheData) : {},
+        autoAccounts: settings.autoAccounts ? JSON.parse(settings.autoAccounts) : [],
       };
     }),
 
@@ -131,6 +137,83 @@ export const appRouter = router({
         await upsertUserSettings(ctx.user.id, data);
         return { success: true };
       }),
+
+    /** Save/update account names cache */
+    saveAccountNames: protectedProcedure
+      .input(z.object({
+        accountNames: z.string(), // JSON string of Record<string, string>
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // Merge with existing account names in DB
+        const existing = await getUserSettings(ctx.user.id);
+        let merged: Record<string, string> = {};
+        if (existing?.accountNames) {
+          try { merged = JSON.parse(existing.accountNames); } catch {}
+        }
+        const incoming: Record<string, string> = JSON.parse(input.accountNames);
+        for (const [id, name] of Object.entries(incoming)) {
+          merged[id.replace(/^act_/, '')] = name;
+        }
+        await upsertUserSettings(ctx.user.id, {
+          accountNames: JSON.stringify(merged),
+        });
+        return { success: true };
+      }),
+
+    /** Get account names from DB */
+    getAccountNames: protectedProcedure.query(async ({ ctx }) => {
+      const settings = await getUserSettings(ctx.user.id);
+      if (!settings?.accountNames) return {};
+      try { return JSON.parse(settings.accountNames) as Record<string, string>; } catch { return {}; }
+    }),
+
+    /** Save/update BM cache */
+    saveBmCache: protectedProcedure
+      .input(z.object({
+        bmCache: z.string(), // JSON string of Record<string, BmIdEntry>
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // Merge with existing BM cache in DB
+        const existing = await getUserSettings(ctx.user.id);
+        let merged: Record<string, unknown> = {};
+        if (existing?.bmCacheData) {
+          try { merged = JSON.parse(existing.bmCacheData); } catch {}
+        }
+        const incoming = JSON.parse(input.bmCache);
+        for (const [id, entry] of Object.entries(incoming)) {
+          merged[id.replace(/^act_/, '')] = entry;
+        }
+        await upsertUserSettings(ctx.user.id, {
+          bmCacheData: JSON.stringify(merged),
+        });
+        return { success: true };
+      }),
+
+    /** Get BM cache from DB */
+    getBmCache: protectedProcedure.query(async ({ ctx }) => {
+      const settings = await getUserSettings(ctx.user.id);
+      if (!settings?.bmCacheData) return {};
+      try { return JSON.parse(settings.bmCacheData); } catch { return {}; }
+    }),
+
+    /** Save/update auto accounts */
+    saveAutoAccounts: protectedProcedure
+      .input(z.object({
+        autoAccounts: z.string(), // JSON string of AdAccount[]
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await upsertUserSettings(ctx.user.id, {
+          autoAccounts: input.autoAccounts,
+        });
+        return { success: true };
+      }),
+
+    /** Get auto accounts from DB */
+    getAutoAccounts: protectedProcedure.query(async ({ ctx }) => {
+      const settings = await getUserSettings(ctx.user.id);
+      if (!settings?.autoAccounts) return [];
+      try { return JSON.parse(settings.autoAccounts); } catch { return []; }
+    }),
   }),
 
   // ─── Disapproved Ads (Persistent Cache) ───

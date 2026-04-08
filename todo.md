@@ -188,3 +188,14 @@
 - [x] DB load path: extract account names from loaded ads + cachedAutoAccounts, update localStorage and state
 - [x] localStorage fallback path: same fix applied
 - [x] Dropdown now shows account names when data is loaded from DB or cache (no re-fetch needed)
+
+## Unify Data Storage to DB (Apr 8)
+- [x] Add accountNames, bmCacheData, autoAccounts longtext columns to user_settings table
+- [x] Create tRPC procedures: saveAccountNames, getAccountNames, saveBmCache, getBmCache, saveAutoAccounts, getAutoAccounts
+- [x] Update settings.get to return new fields (accountNames, bmCacheData, autoAccounts)
+- [x] All procedures use merge strategy (new data merges with existing, not replaces)
+- [x] Update DashboardDataContext to sync account names, BM cache, auto accounts to DB after fetch
+- [x] Update Accounts page to load from DB settings and sync to DB on fetch
+- [x] Update useSettingsSync to sync new fields between DB and localStorage on login
+- [x] DB is now primary source of truth; localStorage serves as local cache for offline/quick access
+- [x] Write tests for new procedures (14 settings tests, 23 total tests all passing)

@@ -70,6 +70,53 @@ export default function Accounts() {
   const [excludedAccountIds, setExcludedAccountIds] = useState<string[]>([]);
   const saveExcludedMutation = trpc.settings.saveExcludedAccounts.useMutation();
 
+  // DB sync mutations for account names, BM cache, auto accounts
+  const saveAccountNamesMut = trpc.settings.saveAccountNames.useMutation();
+  const saveBmCacheMut = trpc.settings.saveBmCache.useMutation();
+  const saveAutoAccountsMut = trpc.settings.saveAutoAccounts.useMutation();
+
+  // Load from DB settings on mount
+  const { data: dbSettings } = trpc.settings.get.useQuery(undefined, {
+    retry: false, refetchOnWindowFocus: false,
+  });
+
+  // Merge DB data into local state on load
+  useEffect(() => {
+    if (!dbSettings) return;
+    // Merge DB account names
+    if (dbSettings.accountNames && typeof dbSettings.accountNames === 'object' && Object.keys(dbSettings.accountNames).length > 0) {
+      const dbNames = dbSettings.accountNames as Record<string, string>;
+      setAccountNames(dbNames);
+      setAccountNamesState(prev => ({ ...prev, ...dbNames }));
+    }
+    // Merge DB BM cache
+    if (dbSettings.bmCacheData && typeof dbSettings.bmCacheData === 'object' && Object.keys(dbSettings.bmCacheData).length > 0) {
+      const dbBm = dbSettings.bmCacheData as Record<string, any>;
+      for (const [accId, entry] of Object.entries(dbBm)) {
+        if (entry?.bmId) {
+          setBmIdForAccount(accId, entry.bmId, entry.bmName || '', {
+            ownerBmId: entry.ownerBmId,
+            ownerBmName: entry.ownerBmName,
+            agencyBmId: entry.agencyBmId,
+            agencyBmName: entry.agencyBmName,
+          });
+        }
+      }
+      setBmCache(getBmIdCache());
+    }
+    // Merge DB auto accounts
+    if (dbSettings.autoAccounts && Array.isArray(dbSettings.autoAccounts) && dbSettings.autoAccounts.length > 0 && autoAccounts.length === 0) {
+      const dbAutoAccounts = dbSettings.autoAccounts as AdAccount[];
+      setAutoAccounts(dbAutoAccounts);
+      setCachedAutoAccounts(dbAutoAccounts);
+    }
+    // Merge DB excluded accounts
+    if (dbSettings.excludedAccounts && Array.isArray(dbSettings.excludedAccounts) && dbSettings.excludedAccounts.length > 0 && excludedAccountIds.length === 0) {
+      setExcludedAccountIds(dbSettings.excludedAccounts as string[]);
+      setExcludedAccounts(dbSettings.excludedAccounts as string[]);
+    }
+  }, [dbSettings]);
+
   useEffect(() => {
     setManualAccountsList(getManualAccounts());
     setGroups(getAccountGroups());
@@ -113,6 +160,10 @@ export default function Accounts() {
       setBmCache(getBmIdCache());
       if (Object.keys(results).length > 0) {
         toast.success(`自動取得 ${Object.keys(results).length} 個帳號的 BM ID`);
+        // Sync BM cache to DB
+        saveBmCacheMut.mutateAsync({ bmCache: JSON.stringify(getBmIdCache()) }).catch(() => {
+          console.warn('[DB] Failed to sync BM cache to DB');
+        });
       }
     } catch {
       // Non-critical, silently fail
@@ -133,6 +184,10 @@ export default function Accounts() {
       const skippedCount = allAccounts.length - accounts.length;
       setAutoAccounts(accounts);
       setCachedAutoAccounts(accounts);
+      // Sync auto accounts to DB
+      saveAutoAccountsMut.mutateAsync({ autoAccounts: JSON.stringify(accounts) }).catch(() => {
+        console.warn('[DB] Failed to sync auto accounts to DB');
+      });
       // Update account names cache
       const names: Record<string, string> = {};
       const accountIds: string[] = [];
@@ -144,6 +199,10 @@ export default function Accounts() {
       if (Object.keys(names).length > 0) {
         setAccountNames(names);
         setAccountNamesState(getAccountNamesCache());
+        // Sync account names to DB
+        saveAccountNamesMut.mutateAsync({ accountNames: JSON.stringify(names) }).catch(() => {
+          console.warn('[DB] Failed to sync account names to DB');
+        });
       }
       toast.success(`成功取得 ${accounts.length} 個 Active 廣告帳號${skippedCount > 0 ? `（已跳過 ${skippedCount} 個非 Active 帳號）` : ''}`);
 

@@ -15,8 +15,18 @@ import {
   setAccountGroups,
   getManualAccounts,
   setManualAccounts,
+  setAccountNames,
+  getAccountNamesCache,
+  setBmIdForAccount,
+  getBmIdCache,
+  setCachedAutoAccounts,
+  getCachedAutoAccounts,
+  setExcludedAccounts,
+  getExcludedAccounts,
   type AccountGroup,
+  type BmIdEntry,
 } from "@/lib/store";
+import type { AdAccount } from "@/lib/metaApi";
 
 export function useSettingsSync() {
   const { isAuthenticated, user } = useAuth();
@@ -32,6 +42,9 @@ export function useSettingsSync() {
   // Mutations
   const saveTokenMut = trpc.settings.saveToken.useMutation();
   const saveAllMut = trpc.settings.saveAll.useMutation();
+  const saveAccountNamesMut = trpc.settings.saveAccountNames.useMutation();
+  const saveBmCacheMut = trpc.settings.saveBmCache.useMutation();
+  const saveAutoAccountsMut = trpc.settings.saveAutoAccounts.useMutation();
 
   // On first load after login: sync DB → localStorage
   useEffect(() => {
@@ -51,6 +64,37 @@ export function useSettingsSync() {
 
     if (data.manualAccounts && getManualAccounts().length === 0) {
       setManualAccounts(data.manualAccounts as unknown as string[]);
+    }
+
+    // Sync excluded accounts from DB → localStorage
+    if (data.excludedAccounts && Array.isArray(data.excludedAccounts) && data.excludedAccounts.length > 0 && getExcludedAccounts().length === 0) {
+      setExcludedAccounts(data.excludedAccounts as string[]);
+    }
+
+    // Sync account names from DB → localStorage (merge, DB takes priority)
+    if (data.accountNames && typeof data.accountNames === 'object' && Object.keys(data.accountNames).length > 0) {
+      const dbNames = data.accountNames as Record<string, string>;
+      setAccountNames(dbNames);
+    }
+
+    // Sync BM cache from DB → localStorage (merge, DB takes priority)
+    if (data.bmCacheData && typeof data.bmCacheData === 'object' && Object.keys(data.bmCacheData).length > 0) {
+      const dbBmCache = data.bmCacheData as Record<string, BmIdEntry>;
+      for (const [accId, entry] of Object.entries(dbBmCache)) {
+        if (entry.bmId) {
+          setBmIdForAccount(accId, entry.bmId, entry.bmName || '', {
+            ownerBmId: entry.ownerBmId,
+            ownerBmName: entry.ownerBmName,
+            agencyBmId: entry.agencyBmId,
+            agencyBmName: entry.agencyBmName,
+          });
+        }
+      }
+    }
+
+    // Sync auto accounts from DB → localStorage
+    if (data.autoAccounts && Array.isArray(data.autoAccounts) && data.autoAccounts.length > 0 && getCachedAutoAccounts().length === 0) {
+      setCachedAutoAccounts(data.autoAccounts as AdAccount[]);
     }
   }, [isAuthenticated, settingsQuery.data]);
 
@@ -107,6 +151,45 @@ export function useSettingsSync() {
     }
   }, [isAuthenticated, saveAllMut]);
 
+  // Save account names to DB (merge)
+  const syncAccountNamesToDb = useCallback(async (names?: Record<string, string>) => {
+    if (!isAuthenticated) return;
+    try {
+      const data = names || getAccountNamesCache();
+      if (Object.keys(data).length > 0) {
+        await saveAccountNamesMut.mutateAsync({ accountNames: JSON.stringify(data) });
+      }
+    } catch (e) {
+      console.warn("[SettingsSync] Failed to sync account names to DB:", e);
+    }
+  }, [isAuthenticated, saveAccountNamesMut]);
+
+  // Save BM cache to DB (merge)
+  const syncBmCacheToDb = useCallback(async (cache?: Record<string, BmIdEntry>) => {
+    if (!isAuthenticated) return;
+    try {
+      const data = cache || getBmIdCache();
+      if (Object.keys(data).length > 0) {
+        await saveBmCacheMut.mutateAsync({ bmCache: JSON.stringify(data) });
+      }
+    } catch (e) {
+      console.warn("[SettingsSync] Failed to sync BM cache to DB:", e);
+    }
+  }, [isAuthenticated, saveBmCacheMut]);
+
+  // Save auto accounts to DB
+  const syncAutoAccountsToDb = useCallback(async (accounts?: AdAccount[]) => {
+    if (!isAuthenticated) return;
+    try {
+      const data = accounts || getCachedAutoAccounts();
+      if (data.length > 0) {
+        await saveAutoAccountsMut.mutateAsync({ autoAccounts: JSON.stringify(data) });
+      }
+    } catch (e) {
+      console.warn("[SettingsSync] Failed to sync auto accounts to DB:", e);
+    }
+  }, [isAuthenticated, saveAutoAccountsMut]);
+
   return {
     isLoading: settingsQuery.isLoading,
     dbSettings: settingsQuery.data,
@@ -114,6 +197,9 @@ export function useSettingsSync() {
     syncAllToDb,
     syncAccountGroupsToDb,
     syncManualAccountsToDb,
+    syncAccountNamesToDb,
+    syncBmCacheToDb,
+    syncAutoAccountsToDb,
     isAuthenticated,
   };
 }
