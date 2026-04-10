@@ -206,3 +206,34 @@
 - [x] "所有帳號" total now matches stats card "被拒登廣告" count
 - [x] Moved dateFilteredAds definition before uniqueAccountIds/uniqueBmNames/uniqueAppIds to fix declaration order
 - [x] uniqueAccountIds, uniqueBmNames, uniqueAppIds all derive from dateFilteredAds now
+
+## Organization Management & Shared Data (Apr 10)
+- [x] Create organizations table (id, name, created_by, created_at, updated_at)
+- [x] Create org_members table (id, org_id, user_id, role: owner/admin/member, joined_at)
+- [x] Create org_settings table (org_id, accessToken, bmIds, accountGroups, manualAccounts, excludedAccounts, accountNames, bmCacheData, autoAccounts)
+- [x] Add orgId column to disapproved_ads and fetch_history tables
+- [x] Create tRPC procedures: org.create, org.my, org.updateName, org.addMember, org.removeMember, org.updateMemberRole, org.leave, org.members, org.allUsers
+- [x] Create effective settings layer: getEffectiveSettings/saveEffectiveSettings auto-resolves org vs user scope
+- [x] All settings procedures (get, save, saveAccountNames, saveBmCache, saveAutoAccounts, etc.) now org-aware
+- [x] All ads procedures (save, load, clear, recordFetch, lastFetch) now org-aware
+- [x] Create Organization management page (create org, edit name, manage members with role badges, add/remove/role-change, leave org)
+- [x] Add Organization nav item in DashboardLayout sidebar with Building2 icon
+- [x] Update useSettingsSync to auto-resolve org metadata (orgId, orgName, orgRole)
+- [x] DashboardLayout footer shows org name when user is in an org
+- [x] All org members see the same data without re-fetching from Meta API
+- [x] Owner/Admin can assign/remove members, change roles
+- [x] Write org tests (18 tests passing), update settings tests (14 passing), ads tests (8 passing)
+- [x] Total: 41 tests all passing
+
+## Meta Ads Rate Limiter Integration (Apr 10)
+- [x] Created MetaAdsRateLimiter class in client/src/lib/rateLimiter.ts
+- [x] Parses X-Business-Use-Case-Usage and x-fb-ads-insights-throttle headers from every response
+- [x] Tracks per-account usage (callCount, totalCputime, totalTime, accIdUtilPct)
+- [x] Auto-delay: 5s when usage >= 70% (warn), 30s when >= 90% (pause), full wait on throttle
+- [x] Exponential backoff for retryable error codes (4, 17, 32, 80000, 80004, 613)
+- [x] Minimum 500ms delay between all API calls
+- [x] Integrated into ALL Meta API functions: fetchAdAccounts, fetchDisapprovedAds, fetchAdInsights, fetchAllDisapprovedAds, fetchBmIdForAccount, fetchBmIdsForAccounts, fetchSingleAd, fetchAppNames, fetchAccountAppIds, validateToken, requestAdReview, requestAdAccountReview, batchRequestAdReview, updateAdCreative
+- [x] Replaced ad-hoc fixed delays with intelligent rate-limiter-driven throttling
+- [x] Singleton rateLimiter instance shared across all API calls
+- [x] onStatusChange callback available for UI to display rate limit status
+- [x] All 41 tests passing

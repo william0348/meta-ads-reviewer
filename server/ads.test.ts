@@ -2,37 +2,71 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 
-// Mock the db module
+// In-memory stores
 const mockAdsStore: any[] = [];
 const mockFetchHistory: any[] = [];
 
 vi.mock("./db", () => ({
-  getUserSettings: vi.fn(async () => null),
-  upsertUserSettings: vi.fn(async () => {}),
-  deleteUserSettings: vi.fn(async () => {}),
+  // Auth
   getUserByOpenId: vi.fn(async () => undefined),
   upsertUser: vi.fn(async () => {}),
   getDb: vi.fn(async () => null),
-  saveDisapprovedAds: vi.fn(async (_userId: number, ads: any[]) => {
+
+  // User settings
+  getUserSettings: vi.fn(async () => null),
+  upsertUserSettings: vi.fn(async () => {}),
+  deleteUserSettings: vi.fn(async () => {}),
+
+  // Org management (user not in any org for these tests)
+  createOrganization: vi.fn(async () => 1),
+  getOrganization: vi.fn(async () => undefined),
+  updateOrganizationName: vi.fn(async () => {}),
+  getUserOrg: vi.fn(async () => null),
+  listOrgMembers: vi.fn(async () => []),
+  addOrgMember: vi.fn(async () => {}),
+  removeOrgMember: vi.fn(async () => {}),
+  updateOrgMemberRole: vi.fn(async () => {}),
+  getUserByEmail: vi.fn(async () => undefined),
+  getUserByName: vi.fn(async () => undefined),
+  listAllUsers: vi.fn(async () => []),
+
+  // Org settings
+  getOrgSettings: vi.fn(async () => null),
+  upsertOrgSettings: vi.fn(async () => {}),
+
+  // Effective settings
+  getEffectiveSettings: vi.fn(async () => ({
+    orgId: null,
+    orgName: null,
+    orgRole: null,
+    settings: {
+      accessToken: null, tokenLabel: null, bmIds: null,
+      accountGroups: null, manualAccounts: null, excludedAccounts: null,
+      accountNames: null, bmCacheData: null, autoAccounts: null,
+    },
+  })),
+  saveEffectiveSettings: vi.fn(async () => ({ orgId: null })),
+
+  // Ads (org-aware signatures: userId, data, orgId?)
+  saveDisapprovedAds: vi.fn(async (_userId: number, ads: any[], _orgId?: number | null) => {
     for (const ad of ads) {
-      const existing = mockAdsStore.findIndex(
-        (a) => a.adId === ad.adId
-      );
+      const existing = mockAdsStore.findIndex((a) => a.adId === ad.adId);
       if (existing >= 0) {
         mockAdsStore[existing] = { ...mockAdsStore[existing], ...ad };
       } else {
         mockAdsStore.push({ ...ad, id: mockAdsStore.length + 1 });
       }
     }
+    return ads.length;
   }),
-  loadDisapprovedAds: vi.fn(async (_userId: number) => {
+  loadDisapprovedAds: vi.fn(async (_userId: number, _orgId?: number | null) => {
     return mockAdsStore.map((a) => ({
       ...a,
       firstFetchedAt: new Date(),
       lastRefreshedAt: new Date(),
     }));
   }),
-  updateSingleAd: vi.fn(async (_userId: number, adId: string, data: any) => {
+  updateSingleAd: vi.fn(async (_userId: number, adId: string, data: any, _orgId?: number | null) => {
     const idx = mockAdsStore.findIndex((a) => a.adId === adId);
     if (idx >= 0) {
       mockAdsStore[idx] = { ...mockAdsStore[idx], ...data };
@@ -40,13 +74,19 @@ vi.mock("./db", () => ({
     }
     return false;
   }),
-  clearDisapprovedAds: vi.fn(async () => {
+  clearDisapprovedAds: vi.fn(async (_userId: number, _orgId?: number | null) => {
     mockAdsStore.length = 0;
   }),
-  recordFetchHistory: vi.fn(async (_userId: number, data: any) => {
+  deleteAdsByIds: vi.fn(async (_userId: number, adIds: string[], _orgId?: number | null) => {
+    for (const id of adIds) {
+      const idx = mockAdsStore.findIndex((a) => a.adId === id);
+      if (idx >= 0) mockAdsStore.splice(idx, 1);
+    }
+  }),
+  recordFetchHistory: vi.fn(async (_userId: number, data: any, _orgId?: number | null) => {
     mockFetchHistory.push(data);
   }),
-  getLatestFetchHistory: vi.fn(async (_userId: number) => {
+  getLatestFetchHistory: vi.fn(async (_userId: number, _orgId?: number | null) => {
     return mockFetchHistory.length > 0
       ? mockFetchHistory[mockFetchHistory.length - 1]
       : null;
@@ -70,26 +110,16 @@ function createAuthContext(): TrpcContext {
 
   return {
     user,
-    req: {
-      protocol: "https",
-      headers: {},
-    } as TrpcContext["req"],
-    res: {
-      clearCookie: () => {},
-    } as TrpcContext["res"],
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: { clearCookie: () => {} } as TrpcContext["res"],
   };
 }
 
 function createUnauthContext(): TrpcContext {
   return {
     user: null,
-    req: {
-      protocol: "https",
-      headers: {},
-    } as TrpcContext["req"],
-    res: {
-      clearCookie: () => {},
-    } as TrpcContext["res"],
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: { clearCookie: () => {} } as TrpcContext["res"],
   };
 }
 
@@ -130,7 +160,6 @@ describe("ads router", () => {
     const ctx = createAuthContext();
     const caller = appRouter.createCaller(ctx);
 
-    // Save first
     await caller.ads.save({
       ads: [
         {
@@ -150,7 +179,6 @@ describe("ads router", () => {
     const ctx = createAuthContext();
     const caller = appRouter.createCaller(ctx);
 
-    // Save first
     await caller.ads.save({
       ads: [
         {
@@ -162,7 +190,6 @@ describe("ads router", () => {
       ],
     });
 
-    // Update
     const result = await caller.ads.updateOne({
       adId: "123456",
       effectiveStatus: "PENDING_REVIEW",
@@ -240,7 +267,6 @@ describe("ads router", () => {
   it("rejects unauthenticated access to ads.load", async () => {
     const ctx = createUnauthContext();
     const caller = appRouter.createCaller(ctx);
-
     await expect(caller.ads.load()).rejects.toThrow();
   });
 });

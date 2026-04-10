@@ -1,8 +1,12 @@
 /**
- * useSettingsSync — Syncs user settings between localStorage and the database.
+ * useSettingsSync — Syncs settings between localStorage and the database.
  * 
+ * Settings are now org-aware: if the user belongs to an org, all settings
+ * are stored at the org level (shared). Otherwise, they fall back to user-level.
+ * The backend resolves this automatically via getEffectiveSettings / saveEffectiveSettings.
+ *
  * On login: loads settings from DB → writes to localStorage
- * On save: writes to localStorage → syncs to DB
+ * On save: writes to localStorage → syncs to DB (org or user)
  */
 
 import { useEffect, useRef, useCallback } from "react";
@@ -32,7 +36,7 @@ export function useSettingsSync() {
   const { isAuthenticated, user } = useAuth();
   const hasLoadedFromDb = useRef(false);
 
-  // Query: get settings from DB
+  // Query: get effective settings (auto-resolves org vs user)
   const settingsQuery = trpc.settings.get.useQuery(undefined, {
     enabled: isAuthenticated,
     retry: false,
@@ -53,21 +57,23 @@ export function useSettingsSync() {
 
     const data = settingsQuery.data;
 
-    // Only overwrite localStorage if DB has data and localStorage is empty
-    if (data.accessToken && !getAccessToken()) {
+    // Token: DB always takes priority when user is in an org (shared token)
+    if (data.accessToken) {
       setAccessToken(data.accessToken);
+    } else if (!data.accessToken && !getAccessToken()) {
+      // No token anywhere
     }
 
-    if (data.accountGroups && getAccountGroups().length === 0) {
+    if (data.accountGroups && (data.orgId || getAccountGroups().length === 0)) {
       setAccountGroups(data.accountGroups as unknown as AccountGroup[]);
     }
 
-    if (data.manualAccounts && getManualAccounts().length === 0) {
+    if (data.manualAccounts && (data.orgId || getManualAccounts().length === 0)) {
       setManualAccounts(data.manualAccounts as unknown as string[]);
     }
 
     // Sync excluded accounts from DB → localStorage
-    if (data.excludedAccounts && Array.isArray(data.excludedAccounts) && data.excludedAccounts.length > 0 && getExcludedAccounts().length === 0) {
+    if (data.excludedAccounts && Array.isArray(data.excludedAccounts) && data.excludedAccounts.length > 0) {
       setExcludedAccounts(data.excludedAccounts as string[]);
     }
 
@@ -93,12 +99,12 @@ export function useSettingsSync() {
     }
 
     // Sync auto accounts from DB → localStorage
-    if (data.autoAccounts && Array.isArray(data.autoAccounts) && data.autoAccounts.length > 0 && getCachedAutoAccounts().length === 0) {
+    if (data.autoAccounts && Array.isArray(data.autoAccounts) && data.autoAccounts.length > 0) {
       setCachedAutoAccounts(data.autoAccounts as AdAccount[]);
     }
   }, [isAuthenticated, settingsQuery.data]);
 
-  // Save token to DB
+  // Save token to DB (auto-resolves org vs user)
   const syncTokenToDb = useCallback(async (token: string) => {
     if (!isAuthenticated) return;
     try {
@@ -193,6 +199,10 @@ export function useSettingsSync() {
   return {
     isLoading: settingsQuery.isLoading,
     dbSettings: settingsQuery.data,
+    /** The org ID if user is in an org, null otherwise */
+    orgId: settingsQuery.data?.orgId ?? null,
+    orgName: settingsQuery.data?.orgName ?? null,
+    orgRole: settingsQuery.data?.orgRole ?? null,
     syncTokenToDb,
     syncAllToDb,
     syncAccountGroupsToDb,

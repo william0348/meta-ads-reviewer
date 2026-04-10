@@ -8,6 +8,7 @@ import DashboardLayout from "./components/DashboardLayout";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import Accounts from "./pages/Accounts";
+import Organization from "./pages/Organization";
 import { DashboardDataProvider } from "./contexts/DashboardDataContext";
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -17,6 +18,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/settings" component={Settings} />
         <Route path="/accounts" component={Accounts} />
+        <Route path="/organization" component={Organization} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

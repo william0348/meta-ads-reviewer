@@ -4,6 +4,8 @@
  * ad accounts, disapproved ads, insights, creative updates, and appeals.
  */
 
+import { rateLimiter } from './rateLimiter';
+
 const GRAPH_API_VERSION = 'v21.0';
 const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
@@ -256,7 +258,9 @@ export async function fetchAdAccounts(accessToken: string): Promise<AdAccount[]>
   let url = `${GRAPH_API_BASE}/me/adaccounts?fields=id,account_id,name,account_status,currency,business_name&limit=100&access_token=${accessToken}`;
 
   while (url) {
+    await rateLimiter.waitIfNeeded('global');
     const response = await fetch(url);
+    rateLimiter.updateFromResponse(response, 'global');
     const data: ApiResponse<AdAccount> = await response.json();
     if (data.error) {
       throw new Error(`API Error: ${data.error.message} (Code: ${data.error.code})`);
@@ -338,7 +342,10 @@ export async function fetchDisapprovedAds(
   let url = buildUrl(tiers[tierIndex]);
 
   while (url) {
+    // Rate limiter: wait if needed before making the call
+    await rateLimiter.waitIfNeeded(formattedId);
     const response = await fetch(url);
+    rateLimiter.updateFromResponse(response, formattedId);
     const data: ApiResponse<DisapprovedAd> = await response.json();
 
     if (data.error) {
@@ -350,10 +357,10 @@ export async function fetchDisapprovedAds(
 
       // Code 1 = Data too large or rate limit — try retry first, then next tier
       if (data.error.code === 1) {
-        // Retry same tier with delay before falling back
+        // Retry same tier with backoff before falling back
         if (retryCount < MAX_RETRIES_PER_TIER) {
           retryCount++;
-          const delay = tierDelay(tierIndex) * retryCount;
+          const delay = rateLimiter.getBackoffDelay(retryCount);
           console.warn(`[${formattedId}] Code 1 error, retry ${retryCount}/${MAX_RETRIES_PER_TIER} after ${delay}ms (tier: ${tiers[tierIndex].label})`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
@@ -364,7 +371,7 @@ export async function fetchDisapprovedAds(
           tierIndex++;
           retryCount = 0;
           const nextTier = tiers[tierIndex];
-          const delay = tierDelay(tierIndex);
+          const delay = rateLimiter.getBackoffDelay(tierIndex);
           console.warn(`[${formattedId}] Data too large, falling back to ${nextTier.label} tier (limit=${nextTier.limit}), waiting ${delay}ms`);
           await new Promise(resolve => setTimeout(resolve, delay));
           url = buildUrl(nextTier);
@@ -372,15 +379,13 @@ export async function fetchDisapprovedAds(
         }
       }
 
-      // Code 4 = Rate limiting — wait and retry
-      if (data.error.code === 4 || data.error.code === 17 || data.error.code === 32) {
-        if (retryCount < 3) {
-          retryCount++;
-          const delay = 3000 * retryCount;
-          console.warn(`[${formattedId}] Rate limited (Code ${data.error.code}), waiting ${delay}ms before retry`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
+      // Rate limiting errors — use rate limiter's retry logic
+      if (rateLimiter.shouldRetry(data.error.code, retryCount)) {
+        retryCount++;
+        const delay = rateLimiter.getBackoffDelay(retryCount);
+        console.warn(`[${formattedId}] Rate limited (Code ${data.error.code}), backoff ${delay}ms (retry ${retryCount}/${rateLimiter.maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
       }
 
       // All tiers exhausted or other error
@@ -421,8 +426,10 @@ export async function fetchAdInsights(
 
     const batchResults = await Promise.allSettled(
       batch.map(async (adId) => {
+        await rateLimiter.waitIfNeeded(adId);
         const url = `${GRAPH_API_BASE}/${adId}/insights?fields=spend,impressions,clicks&date_preset=last_30d&access_token=${accessToken}`;
         const response = await fetch(url);
+        rateLimiter.updateFromResponse(response, adId);
         const data = await response.json();
 
         if (data.data && data.data.length > 0) {
@@ -482,29 +489,28 @@ export async function fetchAllDisapprovedAds(
     const batchAds: DisapprovedAd[] = [];
     const batchErrors: { accountId: string; error: string }[] = [];
 
-    // Fetch accounts sequentially with delay to avoid rate limiting
+    // Fetch accounts sequentially — rate limiter handles delays automatically
     const results: PromiseSettledResult<{ accountId: string; ads: DisapprovedAd[] }>[] = [];
     for (let i = 0; i < batch.length; i++) {
       const accountId = batch[i];
       try {
+        // Rate limiter inside fetchDisapprovedAds handles per-request throttling
         const ads = await fetchDisapprovedAds(accessToken, accountId);
         results.push({ status: 'fulfilled', value: { accountId, ads } });
       } catch (err) {
         results.push({ status: 'rejected', reason: err });
       }
-      // Add 500ms delay between accounts to avoid rate limiting
-      if (i < batch.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
     }
 
-    // Resolve account names for this batch
+    // Resolve account names for this batch (with rate limiting)
     let accountNameMap: Record<string, string> = {};
     try {
       const nameResults = await Promise.allSettled(
         batch.map(async (accountId) => {
           const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
+          await rateLimiter.waitIfNeeded(formattedId);
           const resp = await fetch(`${GRAPH_API_BASE}/${formattedId}?fields=name&access_token=${accessToken}`);
+          rateLimiter.updateFromResponse(resp, formattedId);
           const data = await resp.json();
           return { accountId: accountId.replace(/^act_/, ''), name: data.name || '' };
         })
@@ -579,7 +585,9 @@ export async function fetchAllDisapprovedAds(
  */
 export async function validateToken(accessToken: string): Promise<{ valid: boolean; name?: string; error?: string }> {
   try {
+    await rateLimiter.waitIfNeeded('global');
     const response = await fetch(`${GRAPH_API_BASE}/me?fields=name,id&access_token=${accessToken}`);
+    rateLimiter.updateFromResponse(response, 'global');
     const data = await response.json();
     if (data.error) {
       return { valid: false, error: data.error.message };
@@ -598,6 +606,7 @@ export async function requestAdReview(
   adId: string
 ): Promise<{ success: boolean; error?: string; errorCode?: number; errorSubcode?: number }> {
   try {
+    await rateLimiter.waitIfNeeded(adId);
     const response = await fetch(`${GRAPH_API_BASE}/${adId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -606,6 +615,7 @@ export async function requestAdReview(
         access_token: accessToken,
       }),
     });
+    rateLimiter.updateFromResponse(response, adId);
     const data = await response.json();
     if (data.error) {
       const errCode = data.error.code;
@@ -678,11 +688,13 @@ export async function updateAdCreative(
     }
 
     // Create new creative
+    await rateLimiter.waitIfNeeded(formattedAccountId);
     const createResp = await fetch(`${GRAPH_API_BASE}/${formattedAccountId}/adcreatives`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params,
     });
+    rateLimiter.updateFromResponse(createResp, formattedAccountId);
     const createData = await createResp.json();
 
     if (createData.error) {
@@ -692,6 +704,7 @@ export async function updateAdCreative(
     const newCreativeId = createData.id;
 
     // Update the ad to use the new creative
+    await rateLimiter.waitIfNeeded(adId);
     const updateResp = await fetch(`${GRAPH_API_BASE}/${adId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -700,6 +713,7 @@ export async function updateAdCreative(
         access_token: accessToken,
       }),
     });
+    rateLimiter.updateFromResponse(updateResp, adId);
     const updateData = await updateResp.json();
 
     if (updateData.error) {
@@ -730,9 +744,11 @@ export async function fetchBmIdForAccount(
     let ownerBmId = '';
     let ownerBmName = '';
     try {
+      await rateLimiter.waitIfNeeded(formattedId);
       const ownerResponse = await fetch(
         `${GRAPH_API_BASE}/${formattedId}?fields=business&access_token=${accessToken}`
       );
+      rateLimiter.updateFromResponse(ownerResponse, formattedId);
       const ownerData = await ownerResponse.json();
       if (!ownerData.error && ownerData.business) {
         ownerBmId = ownerData.business.id || '';
@@ -746,9 +762,11 @@ export async function fetchBmIdForAccount(
     let agencyBmId = '';
     let agencyBmName = '';
     try {
+      await rateLimiter.waitIfNeeded(formattedId);
       const agencyResponse = await fetch(
         `${GRAPH_API_BASE}/${formattedId}/agencies?fields=id,name&access_token=${accessToken}`
       );
+      rateLimiter.updateFromResponse(agencyResponse, formattedId);
       const agencyData = await agencyResponse.json();
       if (!agencyData.error && agencyData.data && agencyData.data.length > 0) {
         // Take the first agency BM (most accounts have one agency)
@@ -876,6 +894,7 @@ export async function batchRequestAdReview(
     const waveResults = await Promise.allSettled(
       wave.map(async (adId): Promise<BatchAppealResult> => {
         try {
+          await rateLimiter.waitIfNeeded(adId);
           const response = await fetch(`${GRAPH_API_BASE}/${adId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -884,6 +903,7 @@ export async function batchRequestAdReview(
               access_token: accessToken,
             }),
           });
+          rateLimiter.updateFromResponse(response, adId);
           const data = await response.json();
           if (data.error) {
             const errCode = data.error.code;
@@ -921,9 +941,10 @@ export async function batchRequestAdReview(
     completed = Math.min(i + CONCURRENCY, adIds.length);
     onProgress?.(completed, adIds.length);
 
-    // Increased delay between waves to respect rate limits
+    // Rate limiter handles inter-wave delays via waitIfNeeded
+    // Add minimal delay between waves as safety margin
     if (i + CONCURRENCY < adIds.length) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
 
@@ -965,7 +986,9 @@ export async function fetchSingleAd(
   ].join(',');
 
   const url = `${GRAPH_API_BASE}/${adId}?fields=${fields}&access_token=${accessToken}`;
+  await rateLimiter.waitIfNeeded(adId);
   const response = await fetch(url);
+  rateLimiter.updateFromResponse(response, adId);
   const data = await response.json();
 
   if (data.error) {
@@ -980,8 +1003,10 @@ export async function fetchSingleAd(
   // Also fetch 30-day insights for this ad
   let spend_30d = 0, impressions_30d = 0, clicks_30d = 0;
   try {
+    await rateLimiter.waitIfNeeded(adId);
     const insightUrl = `${GRAPH_API_BASE}/${adId}/insights?fields=spend,impressions,clicks&date_preset=last_30d&access_token=${accessToken}`;
     const insightResp = await fetch(insightUrl);
+    rateLimiter.updateFromResponse(insightResp, adId);
     const insightData = await insightResp.json();
     if (insightData.data && insightData.data.length > 0) {
       spend_30d = parseFloat(insightData.data[0].spend || '0');
@@ -1038,8 +1063,10 @@ export async function fetchAppNames(
     for (let i = 0; i < uncachedIds.length; i += BATCH_SIZE) {
       const batch = uncachedIds.slice(i, i + BATCH_SIZE);
       try {
+        await rateLimiter.waitIfNeeded('global');
         const url = `${GRAPH_API_BASE}/?ids=${batch.join(',')}&fields=id,name&access_token=${accessToken}`;
         const resp = await fetch(url);
+        rateLimiter.updateFromResponse(resp, 'global');
         if (resp.ok) {
           const data = await resp.json();
           // data is { "appId1": { id, name }, "appId2": { id, name }, ... }
@@ -1096,6 +1123,7 @@ export async function requestAdAccountReview(
     // Clean account IDs — API expects numeric IDs without act_ prefix
     const numericIds = adAccountIds.map((id) => id.replace(/^act_/, ''));
 
+    await rateLimiter.waitIfNeeded(parentBmId);
     const response = await fetch(`${GRAPH_API_BASE}/${parentBmId}/ad_review_requests`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1105,6 +1133,7 @@ export async function requestAdAccountReview(
         access_token: accessToken,
       }),
     });
+    rateLimiter.updateFromResponse(response, parentBmId);
     const data = await response.json();
 
     if (data.error) {
@@ -1142,8 +1171,10 @@ export async function fetchAccountAppIds(
   const formattedId = accountId.startsWith('act_') ? accountId : `act_${accountId}`;
   try {
     // Fetch recent campaigns with promoted_object to find app IDs
+    await rateLimiter.waitIfNeeded(formattedId);
     const url = `${GRAPH_API_BASE}/${formattedId}/campaigns?fields=promoted_object&limit=100&access_token=${accessToken}`;
     const resp = await fetch(url);
+    rateLimiter.updateFromResponse(resp, formattedId);
     const data = await resp.json();
     if (data.error || !data.data) return [];
 

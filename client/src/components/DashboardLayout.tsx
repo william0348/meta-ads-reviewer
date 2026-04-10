@@ -23,12 +23,14 @@ import {
   LogOut,
   Loader2,
   Timer,
+  Building2,
 } from "lucide-react";
 import { useDashboardData } from "@/contexts/DashboardDataContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/contexts/ThemeContext";
+import { trpc } from "@/lib/trpc";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -48,6 +50,12 @@ const navItems = [
     description: "管理廣告帳號",
   },
   {
+    path: "/organization",
+    label: "公司管理",
+    icon: Building2,
+    description: "管理公司成員",
+  },
+  {
     path: "/settings",
     label: "設定",
     icon: Settings,
@@ -61,6 +69,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const { theme, toggleTheme } = useTheme();
   const { isAuthenticated, user, logout } = useAuth();
   const { loading, batchProgress, autoRefreshInterval, ads } = useDashboardData();
+  const orgQuery = trpc.org.my.useQuery(undefined, { enabled: isAuthenticated, retry: false, refetchOnWindowFocus: false });
 
   return (
     <div className="min-h-screen flex bg-background text-foreground">
@@ -201,7 +210,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-[11px] text-green-600 dark:text-green-400 px-1">
                 <Cloud className="w-3.5 h-3.5" />
-                <span>已登入 · Token 已同步至雲端</span>
+                <span>
+                  {orgQuery.data ? `${orgQuery.data.orgName} · 已同步` : '已登入 · Token 已同步至雲端'}
+                </span>
               </div>
               <button
                 onClick={() => logout()}

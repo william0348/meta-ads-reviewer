@@ -36,6 +36,13 @@
       "when": 1775631864910,
       "tag": "0004_adorable_celestials",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1775832508630,
+      "tag": "0005_minor_hitman",
+      "breakpoints": true
     }
   ]
 }
