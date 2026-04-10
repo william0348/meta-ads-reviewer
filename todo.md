@@ -199,3 +199,10 @@
 - [x] Update useSettingsSync to sync new fields between DB and localStorage on login
 - [x] DB is now primary source of truth; localStorage serves as local cache for offline/quick access
 - [x] Write tests for new procedures (14 settings tests, 23 total tests all passing)
+
+## Bug Fix: Dropdown Ad Counts Inconsistent with Stats (Apr 10)
+- [x] Account dropdown counts now use dateFilteredAds (date range filtered), not all ads
+- [x] Same fix applied to App dropdown and BM dropdown counts
+- [x] "所有帳號" total now matches stats card "被拒登廣告" count
+- [x] Moved dateFilteredAds definition before uniqueAccountIds/uniqueBmNames/uniqueAppIds to fix declaration order
+- [x] uniqueAccountIds, uniqueBmNames, uniqueAppIds all derive from dateFilteredAds now

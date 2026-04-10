@@ -145,23 +145,30 @@ export default function Dashboard() {
     return new Set(cached.map((a) => a.id.replace(/^act_/, '')));
   }, [ads]); // re-derive when ads change (after fetch)
 
-  // Unique account IDs from ads — only Active accounts
+  // Date-filtered ads (before other filters, used for stats cards and dropdown counts)
+  const dateFilteredAds = useMemo(() => {
+    const range = getDateRangeFromPreset(dateRange);
+    if (!range) return ads;
+    return filterAdsByDateRange(ads, range.start, range.end);
+  }, [ads, dateRange]);
+
+  // Unique account IDs from ads — only Active accounts (based on date-filtered ads for consistent counts)
   const uniqueAccountIds = useMemo(() => {
     const allIds = Array.from(new Set(
-      ads.map((ad) => (ad.account_id || '').replace(/^act_/, '')).filter(Boolean)
+      dateFilteredAds.map((ad) => (ad.account_id || '').replace(/^act_/, '')).filter(Boolean)
     ));
     // If we have active account info, filter to active only
     if (activeAccountIds.size > 0) {
       return allIds.filter((id) => activeAccountIds.has(id));
     }
     return allIds;
-  }, [ads, activeAccountIds]);
+  }, [dateFilteredAds, activeAccountIds]);
 
-  // Unique BM names from bmCache for BM filter
+  // Unique BM names from bmCache for BM filter (based on date-filtered ads)
   const uniqueBmNames = useMemo(() => {
     const localBmCache = { ...getBmIdCache(), ...bmCache };
     const bmMap = new Map<string, { bmId: string; bmName: string; count: number }>();
-    for (const ad of ads) {
+    for (const ad of dateFilteredAds) {
       const accId = (ad.account_id || '').replace(/^act_/, '');
       const bm = localBmCache[accId];
       if (bm?.bmName) {
@@ -174,13 +181,13 @@ export default function Dashboard() {
       }
     }
     return Array.from(bmMap.entries()).sort((a, b) => a[1].bmName.localeCompare(b[1].bmName));
-  }, [ads, bmCache]);
+  }, [dateFilteredAds, bmCache]);
 
-  // Unique App IDs from ads
+  // Unique App IDs from ads (based on date-filtered ads)
   const uniqueAppIds = useMemo(() => {
     const appIds = new Set<string>();
     let noAppCount = 0;
-    for (const ad of ads) {
+    for (const ad of dateFilteredAds) {
       if (ad.promoted_object_app_id) {
         appIds.add(ad.promoted_object_app_id);
       } else {
@@ -188,7 +195,7 @@ export default function Dashboard() {
       }
     }
     return { appIds: Array.from(appIds).sort(), noAppCount };
-  }, [ads]);
+  }, [dateFilteredAds]);
 
   // Fetch App names for all unique App IDs
   const [appNames, setAppNames] = useState<Record<string, string>>({});
@@ -207,13 +214,6 @@ export default function Dashboard() {
     const group = groups.find((g) => g.id === groupFilter);
     return group ? group.accountIds : null;
   }, [groupFilter, groups]);
-
-  // Date-filtered ads (before other filters, used for stats cards)
-  const dateFilteredAds = useMemo(() => {
-    const range = getDateRangeFromPreset(dateRange);
-    if (!range) return ads;
-    return filterAdsByDateRange(ads, range.start, range.end);
-  }, [ads, dateRange]);
 
   // Unique account IDs from date-filtered ads (for stats card)
   const dateFilteredAccountIds = useMemo(() => {
@@ -653,7 +653,7 @@ export default function Dashboard() {
                   <SelectValue placeholder="所有帳號" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">所有帳號 ({ads.length})</SelectItem>
+                  <SelectItem value="all">所有帳號 ({dateFilteredAds.length})</SelectItem>
                   {uniqueAccountIds
                     .filter((id) => {
                       if (!groupFilterAccountIds) return true;
@@ -665,7 +665,7 @@ export default function Dashboard() {
                       return nameA.localeCompare(nameB);
                     })
                     .map((id) => {
-                      const count = ads.filter((a) => (a.account_id || '').replace(/^act_/, '') === id).length;
+                      const count = dateFilteredAds.filter((a) => (a.account_id || '').replace(/^act_/, '') === id).length;
                       const accName = accountNames[id || ''];
                       return (
                         <SelectItem key={id} value={id!}>
@@ -684,9 +684,9 @@ export default function Dashboard() {
                   <SelectValue placeholder="所有 App" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">所有 App ({ads.length})</SelectItem>
+                  <SelectItem value="all">所有 App ({dateFilteredAds.length})</SelectItem>
                   {uniqueAppIds.appIds.map((appId) => {
-                    const count = ads.filter((a) => a.promoted_object_app_id === appId).length;
+                    const count = dateFilteredAds.filter((a) => a.promoted_object_app_id === appId).length;
                     const name = appNames[appId];
                     const displayName = name && name !== appId ? `${name} (${appId})` : `App ${appId}`;
                     return (
@@ -709,7 +709,7 @@ export default function Dashboard() {
                   <SelectValue placeholder="所有 BM" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">所有 BM ({ads.length})</SelectItem>
+                  <SelectItem value="all">所有 BM ({dateFilteredAds.length})</SelectItem>
                   {uniqueBmNames.map(([key, { bmId, bmName, count }]) => (
                     <SelectItem key={key} value={key}>
                       {bmName} ({count})
