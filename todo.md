@@ -237,3 +237,14 @@
 - [x] Singleton rateLimiter instance shared across all API calls
 - [x] onStatusChange callback available for UI to display rate limit status
 - [x] All 41 tests passing
+
+## Rate Limit Status Indicator on Dashboard (Apr 11)
+- [x] rateLimiter already has getStatus() and getAllStatuses() methods
+- [x] Created RateLimitIndicator component with compact summary bar and expandable per-account details
+- [x] Integrated between stats cards and charts in Dashboard
+- [x] Color-coded: green (normal <70%), amber (70-90%), red (>90%/throttled) with matching icons
+- [x] Auto-polls every 500ms during loading, 2s otherwise; also subscribes to onStatusChange callback
+- [x] Shows per-account progress bars, usage %, throttle badges, API access tier
+- [x] App-level usage display, legend, and tooltip explanation
+- [x] Hidden when no data and not loading (clean UI)
+- [x] All 41 tests passing

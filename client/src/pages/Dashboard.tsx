@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useDashboardData } from "@/contexts/DashboardDataContext";
 import DashboardCharts from "@/components/DashboardCharts";
+import RateLimitIndicator from "@/components/RateLimitIndicator";
 
 type SortMode = "newest" | "oldest" | "spend_desc" | "spend_asc" | "name" | "account_name";
 type DateRange = "7d" | "14d" | "30d" | "60d" | "90d" | "all";
@@ -548,6 +549,9 @@ export default function Dashboard() {
         <StatsCard label="篩選結果" value={filteredAds.length} icon={<Filter className="w-4 h-4" />} color="sky" />
         <StatsCard label="錯誤帳號" value={errors.length} icon={<AlertTriangle className="w-4 h-4" />} color="amber" />
       </div>
+
+      {/* Rate Limit Indicator */}
+      <RateLimitIndicator isLoading={loading} accountNames={accountNames} />
 
       {/* Cumulative Charts */}
       {dateFilteredAds.length > 0 && (
