@@ -18,7 +18,7 @@ import { useState, useMemo, useEffect } from "react";
 import {
   AlertTriangle, Search, RefreshCw, ChevronDown, ChevronUp, XCircle, Loader2, ImageOff, Filter, Download, ArrowUpDown,
   Eye, Database, ExternalLink, Calendar, FolderOpen,
-  CheckSquare, Square, RotateCcw, Timer, TimerOff, Smartphone, Building2,
+  CheckSquare, Square, RotateCcw, Timer, TimerOff, Smartphone, Building2, Copy, ClipboardCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -866,6 +866,29 @@ export default function Dashboard() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {/* Copy ad IDs button — copies selected or all filtered ads */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs"
+              onClick={() => {
+                const ids = selectedAdIds.size > 0
+                  ? Array.from(selectedAdIds)
+                  : filteredAds.map((ad) => ad.id);
+                const text = ids.join(" ");
+                navigator.clipboard.writeText(text).then(() => {
+                  toast.success(
+                    `已複製 ${ids.length} 個廣告編號`,
+                    { description: ids.length > 5 ? `${ids.slice(0, 5).join(" ")} ...` : text }
+                  );
+                });
+              }}
+            >
+              <Copy className="w-3 h-3" />
+              {selectedAdIds.size > 0
+                ? `複製已選編號 (${selectedAdIds.size})`
+                : `複製全部編號 (${filteredAds.length})`}
+            </Button>
             {selectedAdIds.size > 0 && (
               <>
                 <Button

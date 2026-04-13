@@ -248,3 +248,9 @@
 - [x] App-level usage display, legend, and tooltip explanation
 - [x] Hidden when no data and not loading (clean UI)
 - [x] All 41 tests passing
+
+## Copy Ad IDs Button on Dashboard (Apr 13)
+- [x] Add a button to copy all filtered ad IDs to clipboard (space-separated format)
+- [x] Support copying selected ads (via checkbox) or all filtered ads — button text dynamically changes
+- [x] Show toast notification with count and preview on successful copy
+- [x] All 41 tests passing
