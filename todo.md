@@ -263,3 +263,9 @@
 - [x] Updated placeholder text and description to indicate batch support
 - [x] Auto-fetch BM IDs for all newly added accounts
 - [x] All 41 tests passing
+
+## Bug Fix: Duplicate Key Errors in Dashboard (Apr 24)
+- [x] Fix duplicate ad IDs causing React key errors on Dashboard page
+- [x] Added deduplicateAds() helper in DashboardDataContext.tsx — deduplicates by ad ID (keeps last occurrence)
+- [x] Applied to all 3 setAds() call sites: DB load, localStorage fallback, API fetch final result
+- [x] All 41 tests passing

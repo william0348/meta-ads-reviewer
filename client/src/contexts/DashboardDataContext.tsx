@@ -25,6 +25,15 @@ import {
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
+/** Deduplicate ads by id, keeping the last occurrence (most recent data) */
+function deduplicateAds(ads: DisapprovedAd[]): DisapprovedAd[] {
+  const map = new Map<string, DisapprovedAd>();
+  for (const ad of ads) {
+    map.set(ad.id, ad);
+  }
+  return Array.from(map.values());
+}
+
 export interface BatchProgress {
   completed: number;
   total: number;
@@ -128,7 +137,7 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
           });
 
           const filteredCount = allParsedAds.length - parsedAds.length;
-          setAds(parsedAds);
+          setAds(deduplicateAds(parsedAds));
           // Also update localStorage cache for offline/quick access
           setCachedAds(parsedAds, []);
           setCacheAgeStr(getCacheAge() || '從資料庫載入');
@@ -180,7 +189,7 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
               if (lsHasFilter && !lsActiveIds.has(accId)) return false;
               return true;
             });
-          setAds(reparsed);
+          setAds(deduplicateAds(reparsed));
           setErrors(cached.errors);
           setCacheAgeStr(getCacheAge());
 
@@ -397,7 +406,7 @@ export function DashboardDataProvider({ children }: { children: React.ReactNode 
       });
 
       // Final state
-      setAds(result.ads);
+      setAds(deduplicateAds(result.ads));
       setErrors(result.errors);
       setBatchProgress(null);
       setLastFetchTime(Date.now());
