@@ -254,3 +254,12 @@
 - [x] Support copying selected ads (via checkbox) or all filtered ads — button text dynamically changes
 - [x] Show toast notification with count and preview on successful copy
 - [x] All 41 tests passing
+
+## Batch Add Multiple Ad Accounts (Apr 24)
+- [x] Allow pasting multiple ad account IDs at once in the add account input
+- [x] Support space, comma, semicolon, newline, and tab as separators
+- [x] Parse and add all valid account IDs in one action (skip duplicates and invalid)
+- [x] Show toast with count of successfully added, skipped duplicates, and invalid IDs
+- [x] Updated placeholder text and description to indicate batch support
+- [x] Auto-fetch BM IDs for all newly added accounts
+- [x] All 41 tests passing

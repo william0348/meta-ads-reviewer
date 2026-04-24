@@ -219,20 +219,54 @@ export default function Accounts() {
   }, [accessToken, autoFetchBmIds]);
 
   const handleAddAccount = () => {
-    const id = newAccountId.trim();
-    if (!id) { toast.error("請輸入廣告帳號 ID"); return; }
-    const cleaned = id.replace(/^act_/, "");
-    if (!/^\d+$/.test(cleaned)) {
-      toast.error("帳號 ID 格式不正確，應為數字");
-      return;
-    }
-    const updated = addManualAccount(id);
-    setManualAccountsList(updated);
-    setNewAccountId("");
-    toast.success(`已新增帳號 ${cleaned}`);
+    const raw = newAccountId.trim();
+    if (!raw) { toast.error("請輸入廣告帳號 ID"); return; }
 
-    // Auto-fetch BM ID for the newly added account
-    autoFetchBmIds([cleaned]);
+    // Split by comma, space, newline, tab, or semicolon
+    const parts = raw.split(/[,\s;]+/).filter(Boolean);
+    const addedIds: string[] = [];
+    const invalidIds: string[] = [];
+    const duplicateIds: string[] = [];
+    const existingManual = getManualAccounts();
+
+    for (const part of parts) {
+      const cleaned = part.replace(/^act_/, "");
+      if (!/^\d+$/.test(cleaned)) {
+        invalidIds.push(part);
+        continue;
+      }
+      if (existingManual.includes(cleaned) || addedIds.includes(cleaned)) {
+        duplicateIds.push(cleaned);
+        continue;
+      }
+      addManualAccount(cleaned);
+      addedIds.push(cleaned);
+    }
+
+    setManualAccountsList(getManualAccounts());
+    setNewAccountId("");
+
+    // Show results
+    if (addedIds.length > 0) {
+      toast.success(`已新增 ${addedIds.length} 個帳號`, {
+        description: addedIds.length <= 5
+          ? addedIds.join(', ')
+          : `${addedIds.slice(0, 5).join(', ')} ...等`,
+      });
+      // Auto-fetch BM IDs for newly added accounts
+      autoFetchBmIds(addedIds);
+    }
+    if (duplicateIds.length > 0) {
+      toast.info(`${duplicateIds.length} 個帳號已存在，已跳過`);
+    }
+    if (invalidIds.length > 0) {
+      toast.error(`${invalidIds.length} 個格式不正確`, {
+        description: invalidIds.join(', '),
+      });
+    }
+    if (addedIds.length === 0 && duplicateIds.length === 0 && invalidIds.length === 0) {
+      toast.error("未偵測到有效的帳號 ID");
+    }
   };
 
   const handleRemoveAccount = (id: string) => {
@@ -767,14 +801,14 @@ export default function Accounts() {
               手動新增帳號
             </h2>
             <p className="text-xs text-muted-foreground">
-              輸入廣告帳號 ID 來手動新增要監控的帳號
+              輸入廣告帳號 ID 來手動新增，支援一次貼入多個帳號（空格、逗號分隔）
             </p>
           </div>
         </div>
 
         <div className="flex gap-2">
           <Input
-            placeholder="輸入廣告帳號 ID（例如：123456789）"
+            placeholder="輸入帳號 ID，多個以空格或逗號分隔（例如：123456789 987654321）"
             value={newAccountId}
             onChange={(e) => setNewAccountId(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAddAccount()}
